@@ -82,18 +82,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [initSession])
 
   // ── LOGIN FUNCTION ────────────────────────────────────────────
-  const login = async (email: string, password: string): Promise<void> => {
-    const res = await authApi.login({ email, password })
-    const { token, user: userData } = res.data.data
+  // const login = async (email: string, password: string): Promise<void> => {
+  //   const res = await authApi.login({ email, password })
+  //   const { token, user: userData } = res.data.data
 
-    // Save the token in 2 places:
-    // 1. In memory (axios will use this for requests)
-    // 2. In sessionStorage (survives page refresh)
-    setToken(token)
-    sessionStorage.setItem(TOKEN_KEY, token)
+  //   // Save the token in 2 places:
+  //   // 1. In memory (axios will use this for requests)
+  //   // 2. In sessionStorage (survives page refresh)
+  //   setToken(token)
+  //   sessionStorage.setItem(TOKEN_KEY, token)
 
-    setUser(userData)
-  }
+  //   setUser(userData)
+  // }
+
+  const login = async (
+    email: string,
+    password: string
+  ): Promise<void> => {
+    const res = await authApi.login({ email, password });
+
+    console.log('Login response:', res.data);
+
+    const { token, user: userData } = res.data.data;
+
+    console.log('Token:', token);
+    console.log('User:', userData);
+
+    setToken(token);
+    sessionStorage.setItem(TOKEN_KEY, token);
+    setUser(userData);
+
+    window.location.href = '/dashboard';
+  };
 
   // ── REGISTER FUNCTION ─────────────────────────────────────────
   const register = async (

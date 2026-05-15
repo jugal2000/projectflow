@@ -4,10 +4,10 @@ import { Toaster } from 'react-hot-toast'
 import { AuthProvider, useAuth } from './context/AuthContext'
 
 // Pages — we'll create these next
-// import LoginPage from './pages/LoginPage'
-// import RegisterPage from './pages/RegisterPage'
-// import DashboardPage from './pages/DashboardPage'
-// import ProjectDetailPage from './pages/ProjectDetailPage'
+import LoginPage from './pages/LoginPage'
+import RegisterPage from './pages/RegisterPage'
+import DashboardPage from './pages/DashboardPage'
+import ProjectDetailPage from './pages/ProjectDetailPage'
 
 // Layout — the navbar wrapper
 import Layout from './components/layout/Layout'
