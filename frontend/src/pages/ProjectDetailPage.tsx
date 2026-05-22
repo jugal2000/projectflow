@@ -36,14 +36,18 @@ const ProjectDetailPage: React.FC = () => {
     if (!slug) return
     try {
       const [projRes, taskRes] = await Promise.all([
-        // Promise.all = run both requests at the same time, wait for both
         projectApi.get(slug),
         taskApi.list(slug, { per_page: 100 }),
       ])
       setProject(projRes.data.data)
       setTasks(taskRes.data.data)
-    } catch {
-      toast.error('Failed to load project')
+    } catch (err: unknown) {
+      // Show the actual error message for debugging
+      const axiosError = err as { response?: { data?: { message?: string }; status?: number } }
+      const msg = axiosError.response?.data?.message ?? (err instanceof Error ? err.message : 'Unknown error')
+      const status = axiosError.response?.status ?? 'No response'
+      console.error('Project load failed:', status, msg, err)
+      toast.error(`Error ${status}: ${msg}`)
       navigate('/')
     } finally {
       setIsLoading(false)
