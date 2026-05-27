@@ -8,202 +8,184 @@ use App\Http\Requests\Project\UpdateProjectRequest;
 use App\Http\Resources\ProjectResource;
 use App\Models\ActivityLog;
 use App\Models\Project;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 
 class ProjectController extends BaseController
 {
   /**
+   * Helper: get the currently authenticated user as a User model.
+   */
+  private function authUser(): User
+  {
+    /** @var User $user */
+    $user = Auth::user();
+    return $user;
+  }
+
+  /**
    * GET /api/v1/projects
-   *
-   * Returns a paginated, filtered list of projects.
+   * List all projects with optional filters
    */
   public function index(Request $request): JsonResponse
   {
-    $projects = Project::with(['owner', 'tasks']) // Eager load to prevent N+1
-      ->forStatus($request->status)        // Apply status filter if given
-      ->forOwner($request->owner_id)       // Apply owner filter if given
-      ->when(                              // 'when' only adds this if condition is true
-        $request->search,
-        fn($q) => $q->where('name', 'like', "%{$request->search}%")
-        // LIKE with % on both sides = contains search
-      )
-      ->orderBy(
-        $request->sort_by ?? 'created_at',  // ?? = use 'created_at' if sort_by not given
-        $request->sort_dir ?? 'desc'
-      )
-      ->paginate($request->per_page ?? 15); // Default 15 per page
+    $query = Project::with('owner')
+      ->withCount(['tasks', 'tasks as done_tasks' => function ($q) {
+        $q->where('status', 'done');
+      }]);
 
-    // Transform each project through ProjectResource before sending
-    return $this->paginated(
-      $projects->through(fn($p) => new ProjectResource($p))
-    );
+    // Filters
+    if ($request->status) {
+      $query->where('status', $request->status);
+    }
+
+    if ($request->search) {
+      $query->where('name', 'like', '%' . $request->search . '%');
+    }
+
+    $projects = $query->orderBy('created_at', 'desc')
+      ->paginate($request->per_page ?? 18);
+
+    return $this->paginated(ProjectResource::collection($projects));
   }
 
   /**
    * POST /api/v1/projects
-   *
-   * Creates a new project. Only admin and manager can do this (enforced by Policy).
+   * Create a new project
+   * Only admins and managers can create projects.
    */
   public function store(CreateProjectRequest $request): JsonResponse
   {
-    // $this->authorize() calls the Policy and throws 403 if denied
-    // 'create' = calls ProjectPolicy::create($user)
-    $this->authorize('create', Project::class);
+    $user = $this->authUser();
 
-    // Generate a unique slug from the project name
-    $slug = Project::generateUniqueSlug($request->name);
+    // Manual authorization — only admin and manager can create projects
+    if (!$user->isAdmin() && !$user->isManager()) {
+      return $this->error('Only admins and managers can create projects', 403);
+    }
 
-    // Create the project
-    // array_merge combines two arrays: the validated form data + our additions
-    $project = Project::create(array_merge(
-      $request->validated(), // All the validated fields from CreateProjectRequest
-      [
-        'slug'     => $slug,
-        'owner_id' => Auth::id(), // The logged-in user becomes the owner
-      ]
-    ));
+    $data = $request->validated();
 
-    // Record this in the activity log
-    ActivityLog::record($project, Auth::user(), 'created');
+    // Auto-generate unique slug from name
+    $data['slug']     = Project::generateUniqueSlug($data['name']);
+    $data['owner_id'] = $user->id;
 
-    // Load the owner relationship so ProjectResource can include it
+    $project = Project::create($data);
+
+    ActivityLog::record($project, $user, 'created');
+
     return $this->success(
       new ProjectResource($project->load('owner')),
-      'Project created',
+      'Project created successfully',
       201
     );
   }
 
   /**
    * GET /api/v1/projects/{slug}
-   *
-   * Returns a single project with all its tasks.
-   * Laravel automatically finds the project by slug (because of getRouteKeyName())
+   * Show one project's full details
    */
   public function show(Project $project): JsonResponse
   {
-    // Load relationships: owner info + all tasks with their assignees
-    $project->load(['owner', 'tasks.assignee']);
-    // tasks.assignee = load tasks AND for each task load its assignee
-    // This is called "nested eager loading"
+    $project->load('owner');
+    $project->loadCount([
+      'tasks',
+      'tasks as done_tasks' => function ($q) {
+        $q->where('status', 'done');
+      },
+    ]);
 
     return $this->success(new ProjectResource($project));
   }
 
   /**
    * PUT /api/v1/projects/{slug}
-   *
-   * Updates a project. Only owner or admin (enforced by Policy).
+   * Update a project
    */
   public function update(UpdateProjectRequest $request, Project $project): JsonResponse
   {
-    // 'update' = calls ProjectPolicy::update($user, $project)
-    $this->authorize('update', $project);
+    $user = $this->authUser();
+
+    // Admin can update any project; manager only their own projects
+    $canUpdate = $user->isAdmin()
+      || ($user->isManager() && $project->owner_id === $user->id);
+
+    if (!$canUpdate) {
+      return $this->error('You do not have permission to update this project', 403);
+    }
 
     $data = $request->validated();
 
-    // If the name changed, regenerate the slug
+    // If name changed, regenerate slug (excluding current project)
     if (isset($data['name']) && $data['name'] !== $project->name) {
-      // Pass $project->id to exclude this project from collision check
       $data['slug'] = Project::generateUniqueSlug($data['name'], $project->id);
     }
 
-    // Save "before" values for the activity log
-    $before = $project->only(['name', 'status', 'description']);
-
     $project->update($data);
 
-    // Log the change with before/after comparison
-    ActivityLog::record($project, Auth::user(), 'updated', [
-      'before' => $before,
-      'after'  => $project->fresh()->only(['name', 'status', 'description']),
-      // fresh() = re-fetch from database to get updated values
-    ]);
+    ActivityLog::record($project, $user, 'updated');
+    Cache::forget("project_stats_{$project->id}");
 
     return $this->success(
       new ProjectResource($project->load('owner')),
-      'Project updated'
+      'Project updated successfully'
     );
   }
 
   /**
    * DELETE /api/v1/projects/{slug}
-   *
-   * Soft deletes a project. Only admin (enforced by Policy).
+   * Soft delete a project
+   * Only admins can delete projects.
    */
   public function destroy(Project $project): JsonResponse
   {
-    $this->authorize('delete', $project);
+    $user = $this->authUser();
 
-    ActivityLog::record($project, Auth::user(), 'deleted');
+    // Only admins can delete projects
+    if (!$user->isAdmin()) {
+      return $this->error('Only admins can delete projects', 403);
+    }
 
-    $project->delete(); // Soft delete — sets deleted_at, doesn't remove the row
+    ActivityLog::record($project, $user, 'deleted');
+    $project->delete();
 
-    // Remove this project's stats from Redis cache
     Cache::forget("project_stats_{$project->id}");
 
-    return $this->success(null, 'Project archived successfully');
+    return $this->success(null, 'Project deleted successfully');
   }
 
   /**
    * GET /api/v1/projects/{slug}/stats
-   *
-   * Returns aggregate statistics for a project.
-   * Results are CACHED in Redis for 5 minutes to avoid repeated heavy queries.
+   * Get cached project statistics
    */
   public function stats(Project $project): JsonResponse
   {
-    // Cache::remember() = try to get from cache first
-    // If not in cache, run the function and STORE the result for 300 seconds (5 min)
-    $stats = Cache::remember("project_stats_{$project->id}", 300, function () use ($project) {
-      $taskQuery = $project->tasks(); // Base query for this project's tasks
-
-      // Count tasks grouped by status — ONE query instead of four
-      // selectRaw = write raw SQL inside a query builder query
-      $byStatus = $taskQuery->clone()
-        ->selectRaw('status, COUNT(*) as count')
-        ->groupBy('status')
-        ->pluck('count', 'status') // Returns ['todo' => 3, 'done' => 5]
-        ->toArray();
-
-      // Get total hours — ONE more query
-      $hours = $taskQuery->clone()
-        ->selectRaw('SUM(estimated_hours) as estimated, SUM(actual_hours) as actual')
-        ->first();
-
-      // Count overdue tasks using our scope
-      $overdue = $taskQuery->clone()->overdue()->count();
-
-      return [
-        // array_merge fills in 0 for any status that has no tasks
-        'tasks_by_status' => array_merge(
-          ['todo' => 0, 'in_progress' => 0, 'in_review' => 0, 'done' => 0],
-          $byStatus
-        ),
-        'total_tasks'     => array_sum($byStatus),
-        'estimated_hours' => (float) ($hours->estimated ?? 0),
-        'actual_hours'    => (float) ($hours->actual ?? 0),
-        'overdue_count'   => $overdue,
-        'completion_pct'  => $this->completionPercent($byStatus),
-      ];
-    });
+    $stats = Cache::remember(
+      "project_stats_{$project->id}",
+      300, // 5 minutes
+      function () use ($project) {
+        return [
+          'total_tasks'       => $project->tasks()->count(),
+          'todo'              => $project->tasks()->where('status', 'todo')->count(),
+          'in_progress'       => $project->tasks()->where('status', 'in_progress')->count(),
+          'in_review'         => $project->tasks()->where('status', 'in_review')->count(),
+          'done'              => $project->tasks()->where('status', 'done')->count(),
+          'overdue'           => $project->tasks()
+            ->where('due_date', '<', now())
+            ->whereNotIn('status', ['done'])
+            ->count(),
+          'by_priority' => [
+            'low'      => $project->tasks()->where('priority', 'low')->count(),
+            'medium'   => $project->tasks()->where('priority', 'medium')->count(),
+            'high'     => $project->tasks()->where('priority', 'high')->count(),
+            'critical' => $project->tasks()->where('priority', 'critical')->count(),
+          ],
+        ];
+      }
+    );
 
     return $this->success($stats);
-  }
-
-  /**
-   * Calculate what % of tasks are done.
-   * Private helper method — only used inside this class.
-   */
-  private function completionPercent(array $byStatus): int
-  {
-    $total = array_sum($byStatus);
-    if ($total === 0) return 0; // Avoid division by zero
-
-    // round() rounds to nearest integer, (int) converts to integer type
-    return (int) round(($byStatus['done'] ?? 0) / $total * 100);
   }
 }
