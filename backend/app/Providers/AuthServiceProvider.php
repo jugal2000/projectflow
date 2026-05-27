@@ -7,11 +7,10 @@ use App\Models\Task;
 use App\Policies\ProjectPolicy;
 use App\Policies\TaskPolicy;
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
+use Illuminate\Support\Facades\Gate;
 
 class AuthServiceProvider extends ServiceProvider
 {
-    // This array maps Models to their Policy classes
-    // "For the Project model, use ProjectPolicy"
     protected $policies = [
         Project::class => ProjectPolicy::class,
         Task::class    => TaskPolicy::class,
@@ -19,7 +18,13 @@ class AuthServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        // This registers all the policies listed above
         $this->registerPolicies();
+
+        // Admin can do EVERYTHING — super-gate
+        Gate::before(function ($user, $ability) {
+            if ($user->isAdmin()) {
+                return true;
+            }
+        });
     }
 }

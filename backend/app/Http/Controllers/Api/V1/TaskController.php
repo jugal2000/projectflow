@@ -9,124 +9,138 @@ use App\Http\Resources\TaskResource;
 use App\Models\ActivityLog;
 use App\Models\Project;
 use App\Models\Task;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 
 class TaskController extends BaseController
 {
     /**
+     * Helper: get the currently authenticated user as a User model.
+     * This properly types the user so we can call isAdmin(), isManager() etc.
+     */
+    private function authUser(): User
+    {
+        /** @var User $user */
+        $user = Auth::user();
+        return $user;
+    }
+
+    /**
      * GET /api/v1/projects/{slug}/tasks
+     * List all tasks in a project
      */
     public function index(Request $request, Project $project): JsonResponse
     {
-        $tasks = $project->tasks()
-            ->with(['assignee'])
-            ->forStatus($request->status)
-            ->forPriority($request->priority)
-            ->forAssignee($request->assigned_to)
-            ->orderBy($request->sort_by ?? 'sort_order', $request->sort_dir ?? 'asc')
-            ->paginate($request->per_page ?? 20);
+        $query = $project->tasks()->with('assignee');
 
-        return $this->paginated(
-            $tasks->through(fn($t) => new TaskResource($t))
-        );
+        if ($request->status)      $query->where('status', $request->status);
+        if ($request->priority)    $query->where('priority', $request->priority);
+        if ($request->assigned_to) $query->where('assigned_to', $request->assigned_to);
+
+        $tasks = $query->orderBy('sort_order')
+            ->paginate($request->per_page ?? 50);
+
+        return $this->paginated(TaskResource::collection($tasks));
     }
 
     /**
      * POST /api/v1/projects/{slug}/tasks
+     * Create a new task in a project
      */
     public function store(CreateTaskRequest $request, Project $project): JsonResponse
     {
-        $this->authorize('create', Task::class);
-
-        // Find the highest sort_order in this status column, then add 1
-        // So the new task appears at the BOTTOM of its column
+        $user     = $this->authUser();
+        $status   = $request->validated()['status'] ?? 'todo';
         $maxOrder = $project->tasks()
-            ->where('status', $request->status ?? 'todo')
-            ->max('sort_order') ?? -1; // If no tasks, start at -1 so first task gets 0
+            ->where('status', $status)
+            ->max('sort_order') ?? -1;
 
         $task = $project->tasks()->create(array_merge(
             $request->validated(),
             ['sort_order' => $maxOrder + 1]
         ));
 
-        ActivityLog::record($task, Auth::user(), 'created');
-
-        // Bust the stats cache — task count changed
+        ActivityLog::record($task, $user, 'created');
         Cache::forget("project_stats_{$project->id}");
 
         return $this->success(
             new TaskResource($task->load('assignee')),
-            'Task created',
+            'Task created successfully',
             201
         );
     }
 
     /**
-     * PUT /api/v1/tasks/{id}
+     * PUT /api/v1/tasks/{task}
+     * Update a task
      */
     public function update(UpdateTaskRequest $request, Task $task): JsonResponse
     {
-        $this->authorize('update', $task);
+        $user = $this->authUser();
 
-        $before = $task->only(['title', 'status', 'priority', 'assigned_to']);
+        $canUpdate = $user->isAdmin()
+            || $user->isManager()
+            || $task->assigned_to === $user->id;
+
+        if (!$canUpdate) {
+            return $this->error('You do not have permission to update this task', 403);
+        }
+
         $task->update($request->validated());
 
-        ActivityLog::record($task, Auth::user(), 'updated', ['before' => $before]);
+        ActivityLog::record($task, $user, 'updated');
         Cache::forget("project_stats_{$task->project_id}");
 
-        return $this->success(new TaskResource($task->load('assignee')), 'Task updated');
+        return $this->success(
+            new TaskResource($task->load('assignee')),
+            'Task updated successfully'
+        );
     }
 
     /**
-     * PATCH /api/v1/tasks/{id}/status
-     *
-     * Changes status with full transition validation.
-     * This is separate from update() because it has special business rules.
+     * PATCH /api/v1/tasks/{task}/status
+     * Change task status (used by drag-and-drop)
      */
     public function changeStatus(Request $request, Task $task): JsonResponse
     {
-        // Quick inline validation (not worth a whole Form Request class for 1-2 fields)
-        $request->validate([
-            'status'       => ['required', 'in:' . implode(',', Task::STATUSES)],
-            'actual_hours' => ['nullable', 'numeric', 'min:0'],
-        ]);
+        $user = $this->authUser();
 
-        $user = Auth::user();
+        $canUpdate = $user->isAdmin()
+            || $user->isManager()
+            || $task->assigned_to === $user->id;
 
-        // Authorization check: only assignee or manager/admin can change status
-        if (!$user->is_admin && !$user->is_manager && $task->assigned_to !== $user->id) {
-            return $this->forbidden('Only the assignee or a manager can change task status.');
+        if (!$canUpdate) {
+            return $this->error('You do not have permission to change this task status', 403);
         }
+
+        $request->validate([
+            'status'       => 'required|in:todo,in_progress,in_review,done',
+            'actual_hours' => 'nullable|numeric|min:0|max:9999',
+        ]);
 
         $newStatus = $request->status;
 
-        // Check the state machine — is this transition allowed?
         if (!$task->canTransitionTo($newStatus)) {
             return $this->error(
-                "Cannot transition from '{$task->status}' to '{$newStatus}'. " .
-                    "Allowed: " . implode(', ', Task::STATUS_TRANSITIONS[$task->status] ?? []),
-                422 // 422 = Unprocessable Entity (the request is valid but breaks business rules)
+                "Cannot transition from '{$task->status}' to '{$newStatus}'",
+                422
             );
         }
 
-        // Special rule: moving to 'done' requires actual_hours
-        if ($newStatus === 'done' && !$request->actual_hours && !$task->actual_hours) {
-            return $this->error('actual_hours is required when marking a task as done.', 422);
+        if ($newStatus === 'done' && !$request->has('actual_hours')) {
+            return $this->error('Actual hours are required to mark task as done', 422);
         }
 
         $oldStatus = $task->status;
 
-        // array_filter removes null values — so we don't overwrite actual_hours with null
-        $task->update(array_filter([
+        $task->update([
             'status'       => $newStatus,
-            'actual_hours' => $request->actual_hours,
-        ]));
+            'actual_hours' => $request->actual_hours ?? $task->actual_hours,
+        ]);
 
-        // Record what changed
         ActivityLog::record($task, $user, 'status_changed', [
             'from' => $oldStatus,
             'to'   => $newStatus,
@@ -134,71 +148,88 @@ class TaskController extends BaseController
 
         Cache::forget("project_stats_{$task->project_id}");
 
-        return $this->success(new TaskResource($task->load('assignee')), 'Status updated');
+        return $this->success(
+            new TaskResource($task->load('assignee')),
+            'Status updated successfully'
+        );
     }
 
     /**
-     * PATCH /api/v1/tasks/{id}/assign
+     * PATCH /api/v1/tasks/{task}/assign
+     * Assign a task to a user
      */
     public function assign(Request $request, Task $task): JsonResponse
     {
+        $user = $this->authUser();
+
+        if (!$user->isAdmin() && !$user->isManager()) {
+            return $this->error('Only admins and managers can assign tasks', 403);
+        }
+
         $request->validate([
-            'user_id' => ['nullable', 'exists:users,id'],
+            'assigned_to' => 'nullable|exists:users,id',
         ]);
 
-        $this->authorize('update', $task);
+        $task->update(['assigned_to' => $request->assigned_to]);
 
-        $oldAssignee = $task->assigned_to;
-        $task->update(['assigned_to' => $request->user_id]);
-
-        ActivityLog::record($task, Auth::user(), 'assigned', [
-            'from' => $oldAssignee,
-            'to'   => $request->user_id,
+        ActivityLog::record($task, $user, 'assigned', [
+            'assigned_to' => $request->assigned_to,
         ]);
 
-        return $this->success(new TaskResource($task->load('assignee')), 'Task assigned');
+        Cache::forget("project_stats_{$task->project_id}");
+
+        return $this->success(
+            new TaskResource($task->load('assignee')),
+            'Task assigned successfully'
+        );
     }
 
     /**
      * POST /api/v1/tasks/reorder
-     *
-     * Bulk updates sort_order for all tasks — used after drag and drop.
-     * Uses a database TRANSACTION to ensure all updates succeed or none do.
+     * Bulk update sort_order for multiple tasks
      */
     public function reorder(Request $request): JsonResponse
     {
+        $user = $this->authUser();
+
+        if (!$user->isAdmin() && !$user->isManager()) {
+            return $this->error('Only admins and managers can reorder tasks', 403);
+        }
+
         $request->validate([
-            'tasks'              => ['required', 'array'],
-            'tasks.*.id'         => ['required', 'integer', 'exists:tasks,id'],
-            'tasks.*.sort_order' => ['required', 'integer', 'min:0'],
-            // tasks.*.id = validate 'id' for EVERY item in the tasks array
+            'tasks'              => 'required|array|min:1',
+            'tasks.*.id'         => 'required|integer|exists:tasks,id',
+            'tasks.*.sort_order' => 'required|integer|min:0',
         ]);
 
-        // DB::transaction() = wrap multiple queries in a transaction
-        // If ANY query fails, ALL changes are rolled back (like "undo all")
-        // This prevents partial updates (e.g. 5 of 10 tasks updated then error)
-        DB::transaction(function () use ($request) {
-            foreach ($request->tasks as $item) {
-                Task::where('id', $item['id'])
-                    ->update(['sort_order' => $item['sort_order']]);
-            }
-        });
+        foreach ($request->tasks as $taskData) {
+            Task::where('id', $taskData['id'])->update([
+                'sort_order' => $taskData['sort_order'],
+            ]);
+        }
 
-        return $this->success(null, 'Tasks reordered');
+        return $this->success(null, 'Tasks reordered successfully');
     }
 
     /**
-     * DELETE /api/v1/tasks/{id}
+     * DELETE /api/v1/tasks/{task}
+     * Delete a task (soft delete)
      */
     public function destroy(Task $task): JsonResponse
     {
-        $this->authorize('delete', $task);
+        $user = $this->authUser();
 
-        ActivityLog::record($task, Auth::user(), 'deleted');
-        Cache::forget("project_stats_{$task->project_id}");
+        if (!$user->isAdmin() && !$user->isManager()) {
+            return $this->error('Only admins and managers can delete tasks', 403);
+        }
 
-        $task->delete(); // Soft delete
+        $projectId = $task->project_id;
 
-        return $this->success(null, 'Task deleted');
+        ActivityLog::record($task, $user, 'deleted');
+        $task->delete();
+
+        Cache::forget("project_stats_{$projectId}");
+
+        return $this->success(null, 'Task deleted successfully');
     }
 }
