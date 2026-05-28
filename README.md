@@ -232,4 +232,35 @@ All endpoints are prefixed with `/api/v1`.
 
 ### Task Status State Machine
 
-Tasks follow strict transition rules and cannot skip steps:
+Tasks follow strict transition rules and cannot skip steps.
+
+## 🐳 Quick Start with Docker (Recommended)
+
+The easiest way to run the entire application:
+
+```bash
+# Clone the repository
+git clone https://github.com/jugal2000/projectflow.git
+cd projectflow
+
+# Build and start all services
+docker-compose up --build
+
+# Wait for all containers to start (~1-2 minutes on first run)
+```
+
+Then open **http://localhost:5173** and login with:
+
+- **Email:** `admin@projectflow.dev`
+- **Password:** `password`
+
+That's it! Docker automatically sets up Laravel, React, MySQL, Redis, and the Reverb WebSocket server.
+
+### Docker Commands
+
+```bash
+docker-compose up          # Start all services
+docker-compose down        # Stop all services
+docker-compose up --build  # Rebuild after code changes
+docker ps                  # See running containers
+```
