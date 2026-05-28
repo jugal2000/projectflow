@@ -1,3 +1,4 @@
+import echo from '../services/echo'
 import React, { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
@@ -62,6 +63,49 @@ const ProjectDetailPage: React.FC = () => {
 
     void executeLoadData()
   }, [loadData])
+
+  // ── REAL-TIME UPDATES ─────────────────────────────────────────
+// Subscribe to this project's channel and listen for task changes
+useEffect(() => {
+  if (!project) return
+
+  const channelName = `project.${project.id}`
+
+  // Subscribe to the channel
+  const channel = echo.channel(channelName)
+
+  // Listen for the 'task.updated' event we broadcast from Laravel
+  channel.listen('.task.updated', (event: {
+    action: string
+    task: Task
+  }) => {
+    const { action, task: updatedTask } = event
+
+    if (action === 'created') {
+      // Add the new task to the board
+      setTasks(prev => {
+        // Avoid duplicates (in case we already added it ourselves)
+        if (prev.some(t => t.id === updatedTask.id)) return prev
+        return [...prev, updatedTask]
+      })
+      toast.success(`New task added: ${updatedTask.title}`, { icon: '✨' })
+    } else if (action === 'deleted') {
+      // Remove the deleted task
+      setTasks(prev => prev.filter(t => t.id !== updatedTask.id))
+      toast(`Task removed: ${updatedTask.title}`, { icon: '🗑️' })
+    } else {
+      // Update existing task (status_changed or updated)
+      setTasks(prev =>
+        prev.map(t => t.id === updatedTask.id ? updatedTask : t)
+      )
+    }
+  })
+
+  // Cleanup: leave the channel when component unmounts
+  return () => {
+    echo.leave(channelName)
+  }
+}, [project])  // Re-subscribe if project changes
 
   // ── OPTIMISTIC STATUS CHANGE ──────────────────────────────────
   // "Optimistic" = update the UI immediately BEFORE the API responds

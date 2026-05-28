@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Events\TaskUpdated;
 use App\Http\Controllers\Api\BaseController;
 use App\Http\Requests\Task\CreateTaskRequest;
 use App\Http\Requests\Task\UpdateTaskRequest;
@@ -64,6 +65,7 @@ class TaskController extends BaseController
         ));
 
         ActivityLog::record($task, $user, 'created');
+        TaskUpdated::dispatch($task, 'created');
         Cache::forget("project_stats_{$project->id}");
 
         return $this->success(
@@ -92,6 +94,7 @@ class TaskController extends BaseController
         $task->update($request->validated());
 
         ActivityLog::record($task, $user, 'updated');
+        TaskUpdated::dispatch($task, 'updated');
         Cache::forget("project_stats_{$task->project_id}");
 
         return $this->success(
@@ -145,6 +148,7 @@ class TaskController extends BaseController
             'from' => $oldStatus,
             'to'   => $newStatus,
         ]);
+        TaskUpdated::dispatch($task, 'status_changed');
 
         Cache::forget("project_stats_{$task->project_id}");
 
@@ -226,6 +230,7 @@ class TaskController extends BaseController
         $projectId = $task->project_id;
 
         ActivityLog::record($task, $user, 'deleted');
+        TaskUpdated::dispatch($task, 'deleted');
         $task->delete();
 
         Cache::forget("project_stats_{$projectId}");
