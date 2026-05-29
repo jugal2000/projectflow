@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from 'react'
-import api from '../services/axios'
+import React, { useCallback, useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
-import type { User, Project } from '../types'
+import { userApi } from '../services/api'
+import { useAuth } from '../context/AuthContext'
+import type { User } from '../types'
+import AddTeamMemberModal from '../components/team/AddTeamMemberModal'
 
 const ROLE_BADGE: Record<string, string> = {
   admin:     'bg-red-100 text-red-700',
@@ -16,38 +18,42 @@ const ROLE_ICONS: Record<string, string> = {
 }
 
 const TeamPage: React.FC = () => {
+  const { user: currentUser } = useAuth()
   const [users, setUsers]         = useState<User[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [showAddModal, setShowAddModal] = useState(false)
 
-  useEffect(() => {
-    // We get team members from the projects we have access to
-    // Since there's no /users endpoint, we extract from projects
-    const loadTeam = async () => {
-      try {
-        const res = await api.get<{ data: Project[] }>('/projects', {
-          params: { per_page: 100 },
-        })
+  // Only admin and manager can add team members
+  const canManage = currentUser?.role === 'admin' || currentUser?.role === 'manager'
 
-        // Extract unique owners from all projects
-        const usersMap = new Map<number, User>()
+  // Fetch the team list from the new /users endpoint
+ // Reusable so we can call it again after adding a member
+const loadTeam = async () => {
+  setIsLoading(true)
+  try {
+    const res = await userApi.list()
+    setUsers(res.data.data)
+  } catch {
+    toast.error('Failed to load team members')
+  } finally {
+    setIsLoading(false)
+  }
+}
 
-        // Use Project type instead of 'any' to fix the TypeScript error
-        res.data.data.forEach((p: Project) => {
-          if (p.owner && !usersMap.has(p.owner.id)) {
-            usersMap.set(p.owner.id, p.owner)
-          }
-        })
-
-        setUsers(Array.from(usersMap.values()))
-      } catch {
-        toast.error('Failed to load team members')
-      } finally {
-        setIsLoading(false)
-      }
+useEffect(() => {
+  // Inline-call to avoid the linter complaint about dependencies
+  void (async () => {
+    setIsLoading(true)
+    try {
+      const res = await userApi.list()
+      setUsers(res.data.data)
+    } catch {
+      toast.error('Failed to load team members')
+    } finally {
+      setIsLoading(false)
     }
-
-    loadTeam()
-  }, [])
+  })()
+}, [])
 
   if (isLoading) {
     return (
@@ -59,11 +65,27 @@ const TeamPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Team Members</h1>
-        <p className="text-gray-500 mt-1">People you work with across projects</p>
+      {/* Header with optional Add button */}
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Team Members</h1>
+          <p className="text-gray-500 mt-1">
+            {users.length} {users.length === 1 ? 'member' : 'members'} across all projects
+          </p>
+        </div>
+
+        {canManage && (
+          <button
+            type="button"
+            onClick={() => setShowAddModal(true)}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
+          >
+            <span>+</span> Add Team Member
+          </button>
+        )}
       </div>
 
+      {/* Member grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {users.map(user => (
           <div
@@ -86,11 +108,23 @@ const TeamPage: React.FC = () => {
         ))}
       </div>
 
+      {/* Empty state */}
       {users.length === 0 && (
         <div className="text-center py-20 bg-white rounded-2xl border border-gray-100">
           <span className="text-5xl mb-4 block">👥</span>
           <p className="text-gray-500 font-medium">No team members found</p>
         </div>
+      )}
+
+      {/* Add Team Member modal */}
+      {showAddModal && (
+        <AddTeamMemberModal
+          onClose={() => setShowAddModal(false)}
+          onCreated={() => {
+            setShowAddModal(false)
+            loadTeam()   // refresh the list to show the new member
+          }}
+        />
       )}
     </div>
   )

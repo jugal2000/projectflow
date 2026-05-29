@@ -25,6 +25,10 @@ Route::prefix('v1')->group(function () {
     Route::get('/projects',                  [ProjectController::class, 'index']);
     Route::post('/projects',                 [ProjectController::class, 'store']);
 
+    // Users / Team
+    Route::get('/users',  [\App\Http\Controllers\Api\V1\UserController::class, 'index']);
+    Route::post('/users', [\App\Http\Controllers\Api\V1\UserController::class, 'store']);
+
     // These two MUST come before /projects/{project}
     Route::get('/projects/{project}/stats',  [ProjectController::class, 'stats']);
     Route::get('/projects/{project}/tasks',  [TaskController::class, 'index']);

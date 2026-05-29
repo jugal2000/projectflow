@@ -105,3 +105,20 @@ export const commentApi = {
   delete: (id: number) =>
     api.delete<ApiResponse<null>>(`/comments/${id}`),
 }
+
+// ── Users / Team ─────────────────────────────────────────────────────────
+
+export interface CreateUserPayload {
+  name: string
+  email: string
+  password: string
+  role: 'admin' | 'manager' | 'developer'
+}
+
+export const userApi = {
+  list: (role?: string) =>
+    api.get<ApiResponse<User[]>>('/users', { params: role ? { role } : undefined }),
+
+  create: (data: CreateUserPayload) =>
+    api.post<ApiResponse<User>>('/users', data),
+}
