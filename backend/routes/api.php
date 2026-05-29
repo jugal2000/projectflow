@@ -19,32 +19,33 @@ Route::prefix('v1')->group(function () {
     });
   });
 
-  // ── PROTECTED ROUTES ──────────────────────────────────────────────
   Route::middleware(['auth:sanctum', 'throttle:60,1'])->group(function () {
 
-    // ── STANDALONE TASK ROUTES ─────────────────────────────────
-    // IMPORTANT: These MUST come BEFORE the project routes
-    // because /tasks/reorder must not be matched as a project slug
-    Route::post('/tasks/reorder',        [TaskController::class, 'reorder']);
-    Route::put('/tasks/{task}',          [TaskController::class, 'update']);
-    Route::patch('/tasks/{task}/status', [TaskController::class, 'changeStatus']);
-    Route::patch('/tasks/{task}/assign', [TaskController::class, 'assign']);
-    Route::delete('/tasks/{task}',       [TaskController::class, 'destroy']);
+    // PROJECT ROUTES — specific routes FIRST
+    Route::get('/projects',                  [ProjectController::class, 'index']);
+    Route::post('/projects',                 [ProjectController::class, 'store']);
 
-    // ── PROJECT ROUTES ─────────────────────────────────────────
-    Route::get('/projects',                      [ProjectController::class, 'index']);
-    Route::post('/projects',                     [ProjectController::class, 'store']);
-    Route::get('/projects/{project}/stats',      [ProjectController::class, 'stats']);
-    Route::get('/projects/{project}/tasks',      [TaskController::class, 'index']);
-    Route::post('/projects/{project}/tasks',     [TaskController::class, 'store']);
-    Route::get('/projects/{project}',            [ProjectController::class, 'show']);
-    Route::put('/projects/{project}',            [ProjectController::class, 'update']);
-    Route::delete('/projects/{project}',         [ProjectController::class, 'destroy']);
+    // These two MUST come before /projects/{project}
+    Route::get('/projects/{project}/stats',  [ProjectController::class, 'stats']);
+    Route::get('/projects/{project}/tasks',  [TaskController::class, 'index']);
+    Route::post('/projects/{project}/tasks', [TaskController::class, 'store']);
 
-    // ── COMMENT ROUTES ─────────────────────────────────────────
-    Route::get('/tasks/{task}/comments',   [CommentController::class, 'index']);
-    Route::post('/tasks/{task}/comments',  [CommentController::class, 'store']);
-    Route::put('/comments/{comment}',      [CommentController::class, 'update']);
-    Route::delete('/comments/{comment}',   [CommentController::class, 'destroy']);
+    // Generic project routes LAST
+    Route::get('/projects/{project}',        [ProjectController::class, 'show']);
+    Route::put('/projects/{project}',        [ProjectController::class, 'update']);
+    Route::delete('/projects/{project}',     [ProjectController::class, 'destroy']);
+
+    // TASK ROUTES — reorder before {task}
+    Route::post('/tasks/reorder',         [TaskController::class, 'reorder']);
+    Route::put('/tasks/{task}',           [TaskController::class, 'update']);
+    Route::patch('/tasks/{task}/status',  [TaskController::class, 'changeStatus']);
+    Route::patch('/tasks/{task}/assign',  [TaskController::class, 'assign']);
+    Route::delete('/tasks/{task}',        [TaskController::class, 'destroy']);
+
+    // COMMENT ROUTES
+    Route::get('/tasks/{task}/comments',  [CommentController::class, 'index']);
+    Route::post('/tasks/{task}/comments', [CommentController::class, 'store']);
+    Route::put('/comments/{comment}',     [CommentController::class, 'update']);
+    Route::delete('/comments/{comment}',  [CommentController::class, 'destroy']);
   });
 });
