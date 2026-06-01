@@ -43,7 +43,6 @@ const ProjectDetailPage: React.FC = () => {
       setProject(projRes.data.data)
       setTasks(taskRes.data.data)
     } catch (err: unknown) {
-      // Show the actual error message for debugging
       const axiosError = err as { response?: { data?: { message?: string }; status?: number } }
       const msg = axiosError.response?.data?.message ?? (err instanceof Error ? err.message : 'Unknown error')
       const status = axiosError.response?.status ?? 'No response'
@@ -55,94 +54,96 @@ const ProjectDetailPage: React.FC = () => {
     }
   }, [slug, navigate])
 
-  // The data load is intentionally triggered from an effect.
   useEffect(() => {
     const executeLoadData = async () => {
       await loadData()
     }
-
     void executeLoadData()
   }, [loadData])
 
   // ── REAL-TIME UPDATES ─────────────────────────────────────────
-// Subscribe to this project's channel and listen for task changes
-useEffect(() => {
-  if (!project) return
+  // Subscribe to this project's channel and listen for task changes.
+  // Guarded with `!echo` so the page still works when Reverb isn't running.
+  useEffect(() => {
+    if (!project || !echo) return
 
-  const channelName = `project.${project.id}`
+    const channelName = `project.${project.id}`
+    const channel = echo.channel(channelName)
 
-  // Subscribe to the channel
-  const channel = echo.channel(channelName)
+    channel.listen('.task.updated', (event: {
+      action: string
+      task: Task
+    }) => {
+      const { action, task: updatedTask } = event
 
-  // Listen for the 'task.updated' event we broadcast from Laravel
-  channel.listen('.task.updated', (event: {
-    action: string
-    task: Task
-  }) => {
-    const { action, task: updatedTask } = event
+      if (action === 'created') {
+        setTasks(prev => {
+          if (prev.some(t => t.id === updatedTask.id)) return prev
+          return [...prev, updatedTask]
+        })
+        toast.success(`New task added: ${updatedTask.title}`, { icon: '✨' })
+      } else if (action === 'deleted') {
+        setTasks(prev => prev.filter(t => t.id !== updatedTask.id))
+        toast(`Task removed: ${updatedTask.title}`, { icon: '🗑️' })
+      } else {
+        setTasks(prev =>
+          prev.map(t => t.id === updatedTask.id ? updatedTask : t)
+        )
+      }
+    })
 
-    if (action === 'created') {
-      // Add the new task to the board
-      setTasks(prev => {
-        // Avoid duplicates (in case we already added it ourselves)
-        if (prev.some(t => t.id === updatedTask.id)) return prev
-        return [...prev, updatedTask]
-      })
-      toast.success(`New task added: ${updatedTask.title}`, { icon: '✨' })
-    } else if (action === 'deleted') {
-      // Remove the deleted task
-      setTasks(prev => prev.filter(t => t.id !== updatedTask.id))
-      toast(`Task removed: ${updatedTask.title}`, { icon: '🗑️' })
-    } else {
-      // Update existing task (status_changed or updated)
-      setTasks(prev =>
-        prev.map(t => t.id === updatedTask.id ? updatedTask : t)
-      )
+    return () => {
+      echo?.leave(channelName)
     }
-  })
+  }, [project])
 
-  // Cleanup: leave the channel when component unmounts
-  return () => {
-    echo.leave(channelName)
-  }
-}, [project])  // Re-subscribe if project changes
-
-  // ── OPTIMISTIC STATUS CHANGE ──────────────────────────────────
-  // "Optimistic" = update the UI immediately BEFORE the API responds
-  // If the API fails, we rollback to the previous state
-  // This makes the UI feel instant even on slow connections
-
+  // ── OPTIMISTIC STATUS CHANGE (kanban drag) ────────────────────
+  // Optimistically updates UI before API confirms; rolls back on failure
+  // and shows a friendly toast based on the API's error response.
   const handleStatusChange = useCallback(async (
     taskId: number,
     newStatus: TaskStatus,
     actualHours?: number
   ) => {
-    // Save current state in case we need to rollback
     const previousTasks = tasks
 
-    // Immediately update UI (optimistic update)
+    // Optimistic update
     setTasks(prev =>
       prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t)
     )
 
     try {
       const res = await taskApi.changeStatus(taskId, newStatus, actualHours)
-      // Replace with real data from server (has updated timestamps etc.)
       setTasks(prev => prev.map(t => t.id === taskId ? res.data.data : t))
     } catch (err: unknown) {
-      // ROLLBACK — restore previous state
+      // ROLLBACK
       setTasks(previousTasks)
-      const message = err instanceof Error
-        ? err.message
-        : 'Status update failed'
-      toast.error(message)
+
+      // Extract the friendly message from the API response
+      const axiosError = err as {
+        response?: { status?: number; data?: { message?: string } }
+      }
+      const apiMessage = axiosError.response?.data?.message
+      const status = axiosError.response?.status
+
+      let displayMessage: string
+      if (apiMessage) {
+        displayMessage = apiMessage
+      } else if (status === 403) {
+        displayMessage = "You're not allowed to change this task's status. Only the assignee or a manager/admin can do that."
+      } else if (status === 422) {
+        displayMessage = 'Invalid status transition. Tasks must move one step at a time (todo → in_progress → in_review → done).'
+      } else {
+        displayMessage = 'Status update failed'
+      }
+
+      toast.error(displayMessage)
     }
   }, [tasks])
 
   const handleReorder = useCallback(async (
     updates: Array<{ id: number; sort_order: number }>
   ) => {
-    // Optimistically update sort_order in local state
     setTasks(prev =>
       prev.map(t => {
         const update = updates.find(u => u.id === t.id)
@@ -153,7 +154,7 @@ useEffect(() => {
       await taskApi.reorder(updates)
     } catch {
       toast.error('Reorder failed')
-      loadData()  // Reload from server to get correct order
+      loadData()
     }
   }, [loadData])
 
@@ -164,22 +165,29 @@ useEffect(() => {
 
   const handleTaskUpdated = useCallback((updated: Task) => {
     setTasks(prev => prev.map(t => t.id === updated.id ? updated : t))
-    setSelectedTask(updated)  // Update the modal too
+    setSelectedTask(updated)
   }, [])
 
+  // Removes deleted task from the board and shows a confirmation toast
   const handleTaskDeleted = useCallback((taskId: number) => {
     setTasks(prev => prev.filter(t => t.id !== taskId))
     setSelectedTask(null)
+    toast.success('Task deleted')
   }, [])
 
   if (isLoading) return <SkeletonLoader type="kanban" />
   if (!project)  return null
 
-  const canManage    = user?.role === 'admin' || user?.role === 'manager'
-  const completionPct = project.total_tasks > 0
-    ? Math.round((project.done_tasks / project.total_tasks) * 100)
-    : 0
+  const canManage = user?.role === 'admin' || user?.role === 'manager'
 
+// Compute totals from the live tasks array (not the stale project object),
+// so the progress bar updates immediately when tasks are created, deleted,
+// or moved between columns.
+const totalTasks = tasks.length
+const doneTasks  = tasks.filter(t => t.status === 'done').length
+const completionPct = totalTasks > 0
+  ? Math.round((doneTasks / totalTasks) * 100)
+  : 0
   return (
     <div className="space-y-6">
 
@@ -188,7 +196,6 @@ useEffect(() => {
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
 
-            {/* Name + Status */}
             <div className="flex items-center gap-3 flex-wrap mb-2">
               <h1 className="text-2xl font-bold text-gray-900 truncate">{project.name}</h1>
               <span className={`text-xs font-semibold px-2.5 py-1 rounded-full whitespace-nowrap ${STATUS_COLORS[project.status]}`}>
@@ -196,10 +203,8 @@ useEffect(() => {
               </span>
             </div>
 
-            {/* Description */}
             <p className="text-gray-500 text-sm mb-3">{project.description}</p>
 
-            {/* Meta row */}
             <div className="flex flex-wrap gap-4 text-xs text-gray-500">
               <span>👤 <strong>{project.owner.name}</strong></span>
               {project.start_date && <span>📅 Start: {project.start_date}</span>}
@@ -210,7 +215,6 @@ useEffect(() => {
             </div>
           </div>
 
-          {/* Create Task button */}
           {canManage && (
             <button
               onClick={() => setShowCreateModal(true)}
@@ -221,11 +225,10 @@ useEffect(() => {
           )}
         </div>
 
-        {/* Progress bar */}
         <div className="mt-5">
           <div className="flex justify-between text-xs text-gray-500 mb-1.5">
             <span>Overall Progress</span>
-            <span>{completionPct}% complete · {project.done_tasks}/{project.total_tasks} tasks done</span>
+            <span>{completionPct}% complete · {doneTasks}/{totalTasks} tasks done</span>
           </div>
           <div className="w-full bg-gray-100 rounded-full h-2">
             <div

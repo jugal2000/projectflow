@@ -1,9 +1,7 @@
-import React, { useState } from 'react'
-import { taskApi } from '../../services/api'
-import type { Task } from '../../types'
+import React, { useEffect, useState } from 'react'
+import { taskApi, userApi } from '../../services/api'
+import type { Task, User } from '../../types'
 import toast from 'react-hot-toast'
-
-
 
 interface Props {
   projectSlug: string
@@ -17,6 +15,7 @@ interface FormState {
   priority: string
   due_date: string
   estimated_hours: string
+  assigned_to: string  // stored as string for the <select>, converted to number on submit
 }
 
 interface FormErrors {
@@ -27,15 +26,29 @@ interface FormErrors {
 const CreateTaskModal: React.FC<Props> = ({ projectSlug, onClose, onCreated }) => {
   const [form, setForm] = useState<FormState>({
     title: '', description: '', priority: 'medium', due_date: '', estimated_hours: '',
+    assigned_to: '',
   })
   const [errors, setErrors]       = useState<FormErrors>({})
   const [isLoading, setIsLoading] = useState(false)
+  const [users, setUsers]         = useState<User[]>([])
 
-  // Helper to update one field without writing separate handlers for each
+  // Load the team list when the modal opens so we can populate the assignee dropdown
+  useEffect(() => {
+    const loadUsers = async () => {
+      try {
+        const res = await userApi.list()
+        setUsers(res.data.data)
+      } catch {
+        // If users can't load, the dropdown will just show "Unassigned"
+        // We don't toast here — it's not critical to task creation
+      }
+    }
+    void loadUsers()
+  }, [])
+
   const setField = (field: keyof FormState) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
       setForm(prev => ({ ...prev, [field]: e.target.value }))
-      // Clear the error for this field as user types
       if (errors[field as keyof FormErrors]) {
         setErrors(prev => ({ ...prev, [field]: undefined }))
       }
@@ -64,11 +77,11 @@ const CreateTaskModal: React.FC<Props> = ({ projectSlug, onClose, onCreated }) =
         priority:        form.priority as 'low' | 'medium' | 'high' | 'critical',
         due_date:        form.due_date || undefined,
         estimated_hours: form.estimated_hours ? Number(form.estimated_hours) : undefined,
+        assigned_to:     form.assigned_to ? Number(form.assigned_to) : undefined,
       })
       onCreated(res.data.data)
       toast.success('Task created!')
     } catch (err: unknown) {
-      // Show API validation errors if any
       const apiErrors = (err as { response?: { data?: { errors?: Record<string, string[]> } } })?.response?.data?.errors ?? {}
       if (apiErrors.title) setErrors({ title: apiErrors.title[0] })
       else toast.error('Failed to create task')
@@ -79,18 +92,15 @@ const CreateTaskModal: React.FC<Props> = ({ projectSlug, onClose, onCreated }) =
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
 
-        {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-100">
           <h2 className="text-lg font-bold text-gray-900">Create New Task</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
         </div>
 
-        {/* Form */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
 
-          {/* Title */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
               Title <span className="text-red-500">*</span>
@@ -106,7 +116,6 @@ const CreateTaskModal: React.FC<Props> = ({ projectSlug, onClose, onCreated }) =
             {errors.title && <p className="text-xs text-red-600 mt-1">{errors.title}</p>}
           </div>
 
-          {/* Description */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
               Description
@@ -120,7 +129,25 @@ const CreateTaskModal: React.FC<Props> = ({ projectSlug, onClose, onCreated }) =
             />
           </div>
 
-          {/* Priority + Estimated Hours side by side */}
+          {/* Assignee dropdown — new for issue 4 */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Assign to
+            </label>
+            <select
+              value={form.assigned_to}
+              onChange={setField('assigned_to')}
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
+            >
+              <option value="">Unassigned</option>
+              {users.map(u => (
+                <option key={u.id} value={u.id}>
+                  {u.name} ({u.role})
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
@@ -155,7 +182,6 @@ const CreateTaskModal: React.FC<Props> = ({ projectSlug, onClose, onCreated }) =
             </div>
           </div>
 
-          {/* Due Date */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
               Due Date
@@ -168,7 +194,6 @@ const CreateTaskModal: React.FC<Props> = ({ projectSlug, onClose, onCreated }) =
             />
           </div>
 
-          {/* Action buttons */}
           <div className="flex gap-3 pt-2">
             <button
               type="submit"
