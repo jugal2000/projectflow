@@ -66,29 +66,86 @@ const TaskDetailModal: React.FC<Props> = ({ task, onClose, onUpdate, onDelete })
   }
 
   // Handle status button click
-  const handleStatusChange = async (newStatus: TaskStatus) => {
-    // Don't allow clicking disallowed transitions
-    if (!task.allowed_transitions.includes(newStatus)) return
-
-    let actualHours: number | undefined
-    if (newStatus === 'done') {
-      const input = window.prompt('Enter actual hours spent (required to mark as Done):')
-      if (!input || isNaN(Number(input)) || Number(input) < 0) {
-        toast.error('Valid hours are required to mark a task as done')
-        return
-      }
-      actualHours = Number(input)
-    }
-
-    try {
-      const res = await taskApi.changeStatus(task.id, newStatus, actualHours)
-      onUpdate(res.data.data)
-      toast.success(`Moved to ${STATUS_LABELS[newStatus]}`)
-    } catch (err) {
-      const error = err as { response?: { data?: { message?: string } } }
-      toast.error(error.response?.data?.message ?? 'Status change failed')
-    }
+const handleStatusChange = async (newStatus: TaskStatus) => {
+  // Don't allow clicking disallowed transitions (button is also disabled in the UI)
+  if (!task.allowed_transitions.includes(newStatus)) {
+    toast.error(
+      `You can't move this task directly from ${STATUS_LABELS[task.status]} to ${STATUS_LABELS[newStatus]}. ` +
+      `Tasks must move one step at a time.`
+    )
+    return
   }
+
+  let actualHours: number | undefined
+
+  // Special rule: moving to "done" requires actual_hours
+  if (newStatus === 'done') {
+    const input = window.prompt('Enter actual hours spent (e.g. 4 or 2.5):')
+
+    // User clicked Cancel — silently abort, no error needed
+    if (input === null) return
+
+    const trimmed = input.trim()
+
+    // Empty input
+    if (trimmed === '') {
+      toast.error('Please enter the number of hours spent before marking this task as done.')
+      return
+    }
+
+    const parsed = Number(trimmed)
+
+    // Not a valid number (catches "abc", "4abc", etc.)
+    if (Number.isNaN(parsed)) {
+      toast.error(`"${trimmed}" is not a valid number. Please enter a number like 4 or 2.5.`)
+      return
+    }
+
+    // Zero or negative (you can't spend 0 or negative hours on a completed task)
+    if (parsed <= 0) {
+      toast.error('Hours spent must be greater than 0.')
+      return
+    }
+
+    // Unreasonably high (sanity check — 9999 matches the backend validation max)
+    if (parsed > 9999) {
+      toast.error('Hours spent seems too high. Please enter a realistic value.')
+      return
+    }
+
+    actualHours = parsed
+  }
+
+  try {
+    const res = await taskApi.changeStatus(task.id, newStatus, actualHours)
+    onUpdate(res.data.data)
+
+    // Use a contextual message — completing a task is meaningful, not just "moved"
+    if (newStatus === 'done') {
+      toast.success(`Task marked complete with ${actualHours} hours logged 🎉`)
+    } else {
+      toast.success(`Status updated to ${STATUS_LABELS[newStatus]}`)
+    }
+  } catch (err) {
+    // Extract the API's friendly message if available
+    const error = err as { response?: { status?: number; data?: { message?: string } } }
+    const apiMessage = error.response?.data?.message
+    const status = error.response?.status
+
+    let displayMessage: string
+    if (apiMessage) {
+      displayMessage = apiMessage
+    } else if (status === 403) {
+      displayMessage = "You're not allowed to change this task's status."
+    } else if (status === 422) {
+      displayMessage = 'Invalid status change. Please check the task state and try again.'
+    } else {
+      displayMessage = 'Could not update status. Please try again.'
+    }
+
+    toast.error(displayMessage)
+  }
+}
 
   const handleDelete = async () => {
     if (!window.confirm('Delete this task? This cannot be undone.')) return

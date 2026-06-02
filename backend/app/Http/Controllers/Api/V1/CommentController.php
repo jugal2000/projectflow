@@ -94,14 +94,15 @@ class CommentController extends BaseController
 
   public function destroy(Comment $comment): JsonResponse
   {
+    /** @var \App\Models\User $user */
     $user = Auth::user();
 
-    // Admin can delete anything. Others can only delete their own.
-    if (!$user->is_admin && $comment->user_id !== $user->id) {
+    // Admin can delete any comment. Other users can only delete their own.
+    if (!$user->isAdmin() && $comment->user_id !== $user->id) {
       return $this->forbidden('You can only delete your own comments.');
     }
 
-    $comment->delete(); // Soft delete
+    $comment->delete();
 
     return $this->success(null, 'Comment deleted');
   }

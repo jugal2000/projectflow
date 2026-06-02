@@ -75,8 +75,8 @@ export const taskApi = {
       actual_hours: actualHours,
     }),
 
-  assign: (id: number, userId: number | null) =>
-    api.patch<ApiResponse<Task>>(`/tasks/${id}/assign`, { user_id: userId }),
+ assign: (id: number, assignedTo: number | null) =>
+  api.patch<ApiResponse<Task>>(`/tasks/${id}/assign`, { assigned_to: assignedTo }),
 
   // Bulk reorder after drag and drop
   reorder: (tasks: Array<{ id: number; sort_order: number }>) =>
