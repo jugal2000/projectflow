@@ -53,7 +53,14 @@ class TaskController extends BaseController
      */
     public function store(CreateTaskRequest $request, Project $project): JsonResponse
     {
-        $user     = $this->authUser();
+        $user = $this->authUser();
+
+        // Per README: only admin and manager can create tasks.
+        // Developers can update their assigned tasks but cannot create new ones.
+        if (!$user->isAdmin() && !$user->isManager()) {
+            return $this->error('Only admins and managers can create tasks', 403);
+        }
+
         $status   = $request->validated()['status'] ?? 'todo';
         $maxOrder = $project->tasks()
             ->where('status', $status)

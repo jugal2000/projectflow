@@ -40,9 +40,8 @@ class TaskPolicy
      */
     public function create(User $user): bool
     {
-        return true;
+        return $user->isAdmin() || $user->isManager();
     }
-
     /**
      * Can the user update this task?
      * - Admin: can update any task
