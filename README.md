@@ -168,7 +168,7 @@ cd backend
 php artisan test
 ```
 
-Expected: **36 tests passing**
+Expected: **50 tests passing**
 
 ### Frontend Tests (Vitest)
 
