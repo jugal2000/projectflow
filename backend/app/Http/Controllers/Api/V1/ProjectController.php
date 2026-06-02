@@ -33,9 +33,15 @@ class ProjectController extends BaseController
   public function index(Request $request): JsonResponse
   {
     $query = Project::with('owner')
-      ->withCount(['tasks', 'tasks as done_tasks' => function ($q) {
-        $q->where('status', 'done');
-      }]);
+      ->withCount([
+        'tasks',
+        'tasks as done_tasks' => function ($q) {
+          $q->where('status', 'done');
+        },
+        'tasks as in_progress_count' => function ($q) {
+          $q->where('status', 'in_progress');
+        },
+      ]);
 
     // Filters
     if ($request->status) {
