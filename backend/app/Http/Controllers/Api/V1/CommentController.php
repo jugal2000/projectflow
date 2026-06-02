@@ -9,6 +9,7 @@ use App\Models\Task;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use App\Models\ActivityLog;
 
 class CommentController extends BaseController
 {
@@ -59,6 +60,13 @@ class CommentController extends BaseController
       'parent_id' => $request->parent_id,
     ]);
 
+    /** @var \App\Models\User $user */
+    $user = Auth::user();
+    ActivityLog::record($comment, $user, 'commented', [
+      'task_id' => $task->id,
+      'is_reply' => $request->parent_id !== null,
+    ]);
+
     return $this->success(
       new CommentResource($comment->load('author')),
       'Comment added',
@@ -86,6 +94,13 @@ class CommentController extends BaseController
 
     $comment->update(['body' => $request->body]);
 
+    /** @var \App\Models\User $user */
+    $user = Auth::user();
+    ActivityLog::record($comment, $user, 'comment_updated', [
+      'task_id' => $comment->task_id,
+    ]);
+
+
     return $this->success(
       new CommentResource($comment->load('author')),
       'Comment updated'
@@ -101,6 +116,10 @@ class CommentController extends BaseController
     if (!$user->isAdmin() && $comment->user_id !== $user->id) {
       return $this->forbidden('You can only delete your own comments.');
     }
+
+    ActivityLog::record($comment, $user, 'comment_deleted', [
+      'task_id' => $comment->task_id,
+    ]);
 
     $comment->delete();
 

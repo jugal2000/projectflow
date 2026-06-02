@@ -125,3 +125,20 @@ export const userApi = {
   create: (data: CreateUserPayload) =>
     api.post<ApiResponse<User>>('/users', data),
 }
+
+// ── Activity Log / Audit Trail ──────────────────────────────────────────
+
+export interface ActivityLogEntry {
+  id: number
+  action: string
+  subject_type: string
+  subject_id: number
+  properties: Record<string, unknown> | null
+  user?: { id: number; name: string; role: string }
+  created_at: string
+}
+
+export const activityApi = {
+  list: (params?: { action?: string; user_id?: number; subject_type?: string; per_page?: number }) =>
+    api.get<PaginatedResponse<ActivityLogEntry>>('/activity-logs', { params }),
+}
