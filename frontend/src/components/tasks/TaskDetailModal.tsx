@@ -1,7 +1,7 @@
-import React, { useState } from 'react'
-import { taskApi } from '../../services/api'
+import React, { useEffect, useState } from 'react'
+import { taskApi, userApi } from '../../services/api'
 import { useAuth } from '../../context/AuthContext'
-import type { Task, TaskStatus } from '../../types'
+import type { Task, TaskStatus, User } from '../../types'
 import CommentsSection from '../comments/CommentsSection'
 import toast from 'react-hot-toast'
 
@@ -40,13 +40,31 @@ const TaskDetailModal: React.FC<Props> = ({ task, onClose, onUpdate, onDelete })
   const [isSaving,     setIsSaving]     = useState(false)
   const [isDeleting,   setIsDeleting]   = useState(false)
 
-  // Local inputs are initialized from the task when editing starts.
-  // The rendered title/description use task props directly while not editing.
+  // Reassign-related state
+  const [users, setUsers] = useState<User[]>([])
+  const [isReassigning, setIsReassigning] = useState(false)
 
-  // Can this user edit this task?
+  // Permissions
   const canEdit = user?.role === 'admin'
     || user?.role === 'manager'
     || task.assigned_to === user?.id
+
+  const canReassign = user?.role === 'admin' || user?.role === 'manager'
+
+  // Load users for the reassign dropdown (only if user has permission)
+  useEffect(() => {
+    if (!canReassign) return
+
+    const loadUsers = async () => {
+      try {
+        const res = await userApi.list()
+        setUsers(res.data.data)
+      } catch {
+        // Non-critical: dropdown will just be empty
+      }
+    }
+    void loadUsers()
+  }, [canReassign])
 
   // Save a single field (title or description)
   const saveField = async (field: 'title' | 'description', value: string) => {
@@ -66,86 +84,125 @@ const TaskDetailModal: React.FC<Props> = ({ task, onClose, onUpdate, onDelete })
   }
 
   // Handle status button click
-const handleStatusChange = async (newStatus: TaskStatus) => {
-  // Don't allow clicking disallowed transitions (button is also disabled in the UI)
-  if (!task.allowed_transitions.includes(newStatus)) {
-    toast.error(
-      `You can't move this task directly from ${STATUS_LABELS[task.status]} to ${STATUS_LABELS[newStatus]}. ` +
-      `Tasks must move one step at a time.`
-    )
-    return
-  }
-
-  let actualHours: number | undefined
-
-  // Special rule: moving to "done" requires actual_hours
-  if (newStatus === 'done') {
-    const input = window.prompt('Enter actual hours spent (e.g. 4 or 2.5):')
-
-    // User clicked Cancel — silently abort, no error needed
-    if (input === null) return
-
-    const trimmed = input.trim()
-
-    // Empty input
-    if (trimmed === '') {
-      toast.error('Please enter the number of hours spent before marking this task as done.')
+  const handleStatusChange = async (newStatus: TaskStatus) => {
+    // Don't allow clicking disallowed transitions (button is also disabled in the UI)
+    if (!task.allowed_transitions.includes(newStatus)) {
+      toast.error(
+        `You can't move this task directly from ${STATUS_LABELS[task.status]} to ${STATUS_LABELS[newStatus]}. ` +
+        `Tasks must move one step at a time.`
+      )
       return
     }
 
-    const parsed = Number(trimmed)
+    let actualHours: number | undefined
 
-    // Not a valid number (catches "abc", "4abc", etc.)
-    if (Number.isNaN(parsed)) {
-      toast.error(`"${trimmed}" is not a valid number. Please enter a number like 4 or 2.5.`)
-      return
-    }
-
-    // Zero or negative (you can't spend 0 or negative hours on a completed task)
-    if (parsed <= 0) {
-      toast.error('Hours spent must be greater than 0.')
-      return
-    }
-
-    // Unreasonably high (sanity check — 9999 matches the backend validation max)
-    if (parsed > 9999) {
-      toast.error('Hours spent seems too high. Please enter a realistic value.')
-      return
-    }
-
-    actualHours = parsed
-  }
-
-  try {
-    const res = await taskApi.changeStatus(task.id, newStatus, actualHours)
-    onUpdate(res.data.data)
-
-    // Use a contextual message — completing a task is meaningful, not just "moved"
+    // Special rule: moving to "done" requires actual_hours
     if (newStatus === 'done') {
-      toast.success(`Task marked complete with ${actualHours} hours logged 🎉`)
-    } else {
-      toast.success(`Status updated to ${STATUS_LABELS[newStatus]}`)
-    }
-  } catch (err) {
-    // Extract the API's friendly message if available
-    const error = err as { response?: { status?: number; data?: { message?: string } } }
-    const apiMessage = error.response?.data?.message
-    const status = error.response?.status
+      const input = window.prompt('Enter actual hours spent (e.g. 4 or 2.5):')
 
-    let displayMessage: string
-    if (apiMessage) {
-      displayMessage = apiMessage
-    } else if (status === 403) {
-      displayMessage = "You're not allowed to change this task's status."
-    } else if (status === 422) {
-      displayMessage = 'Invalid status change. Please check the task state and try again.'
-    } else {
-      displayMessage = 'Could not update status. Please try again.'
+      // User clicked Cancel — silently abort, no error needed
+      if (input === null) return
+
+      const trimmed = input.trim()
+
+      // Empty input
+      if (trimmed === '') {
+        toast.error('Please enter the number of hours spent before marking this task as done.')
+        return
+      }
+
+      const parsed = Number(trimmed)
+
+      // Not a valid number (catches "abc", "4abc", etc.)
+      if (Number.isNaN(parsed)) {
+        toast.error(`"${trimmed}" is not a valid number. Please enter a number like 4 or 2.5.`)
+        return
+      }
+
+      // Zero or negative (you can't spend 0 or negative hours on a completed task)
+      if (parsed <= 0) {
+        toast.error('Hours spent must be greater than 0.')
+        return
+      }
+
+      // Unreasonably high (sanity check — 9999 matches the backend validation max)
+      if (parsed > 9999) {
+        toast.error('Hours spent seems too high. Please enter a realistic value.')
+        return
+      }
+
+      actualHours = parsed
     }
 
-    toast.error(displayMessage)
+    try {
+      const res = await taskApi.changeStatus(task.id, newStatus, actualHours)
+      onUpdate(res.data.data)
+
+      // Use a contextual message — completing a task is meaningful, not just "moved"
+      if (newStatus === 'done') {
+        toast.success(`Task marked complete with ${actualHours} hours logged 🎉`)
+      } else {
+        toast.success(`Status updated to ${STATUS_LABELS[newStatus]}`)
+      }
+    } catch (err) {
+      // Extract the API's friendly message if available
+      const error = err as { response?: { status?: number; data?: { message?: string } } }
+      const apiMessage = error.response?.data?.message
+      const status = error.response?.status
+
+      let displayMessage: string
+      if (apiMessage) {
+        displayMessage = apiMessage
+      } else if (status === 403) {
+        displayMessage = "You're not allowed to change this task's status."
+      } else if (status === 422) {
+        displayMessage = 'Invalid status change. Please check the task state and try again.'
+      } else {
+        displayMessage = 'Could not update status. Please try again.'
+      }
+
+      toast.error(displayMessage)
+    }
   }
-}
+
+  // Handle reassigning the task to a different team member
+  const handleReassign = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value
+    // Empty string from the select means "unassign"
+    const newAssigneeId = value === '' ? null : Number(value)
+
+    // No change — don't fire the API
+    if (newAssigneeId === task.assigned_to) return
+
+    setIsReassigning(true)
+    try {
+      const res = await taskApi.assign(task.id, newAssigneeId)
+      onUpdate(res.data.data)
+
+      if (newAssigneeId === null) {
+        toast.success('Task unassigned')
+      } else {
+        const assignedName = res.data.data.assignee?.name ?? 'team member'
+        toast.success(`Task assigned to ${assignedName}`)
+      }
+    } catch (err) {
+      const error = err as { response?: { status?: number; data?: { message?: string } } }
+      const status = error.response?.status
+      const apiMessage = error.response?.data?.message
+
+      let displayMessage: string
+      if (apiMessage) {
+        displayMessage = apiMessage
+      } else if (status === 403) {
+        displayMessage = "You're not allowed to reassign this task."
+      } else {
+        displayMessage = 'Could not reassign task. Please try again.'
+      }
+      toast.error(displayMessage)
+    } finally {
+      setIsReassigning(false)
+    }
+  }
 
   const handleDelete = async () => {
     if (!window.confirm('Delete this task? This cannot be undone.')) return
@@ -263,18 +320,42 @@ const handleStatusChange = async (newStatus: TaskStatus) => {
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
               Assignee
             </p>
+
+            {/* Current assignee display */}
             {task.assignee ? (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 mb-2">
                 <div className="w-7 h-7 rounded-full bg-indigo-500 text-white text-xs font-bold flex items-center justify-center">
                   {task.assignee.name.charAt(0).toUpperCase()}
                 </div>
                 <span className="text-sm text-gray-700">{task.assignee.name}</span>
-                <span className={`text-xs px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500`}>
+                <span className="text-xs px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">
                   {task.assignee.role}
                 </span>
               </div>
             ) : (
-              <p className="text-sm text-gray-400 italic">Unassigned</p>
+              <p className="text-sm text-gray-400 italic mb-2">Unassigned</p>
+            )}
+
+            {/* Reassign dropdown — admin/manager only */}
+            {canReassign && (
+              <div className="mt-2">
+                <select
+                  value={task.assigned_to ?? ''}
+                  onChange={handleReassign}
+                  disabled={isReassigning}
+                  className="w-full max-w-xs text-sm px-3 py-1.5 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:opacity-60"
+                >
+                  <option value="">Unassigned</option>
+                  {users.map(u => (
+                    <option key={u.id} value={u.id}>
+                      {u.name} ({u.role})
+                    </option>
+                  ))}
+                </select>
+                {isReassigning && (
+                  <p className="text-xs text-gray-500 mt-1">Updating assignment…</p>
+                )}
+              </div>
             )}
           </div>
 
