@@ -39,12 +39,19 @@ Route::prefix('v1')->group(function () {
     Route::put('/projects/{project}',        [ProjectController::class, 'update']);
     Route::delete('/projects/{project}',     [ProjectController::class, 'destroy']);
 
+    // Current user's tasks across all projects (must come before /tasks/{task})
+    Route::get('/tasks/my', [TaskController::class, 'myTasks']);
+    Route::post('/tasks/reorder',         [TaskController::class, 'reorder']);
+
     // TASK ROUTES — reorder before {task}
     Route::post('/tasks/reorder',         [TaskController::class, 'reorder']);
     Route::put('/tasks/{task}',           [TaskController::class, 'update']);
     Route::patch('/tasks/{task}/status',  [TaskController::class, 'changeStatus']);
     Route::patch('/tasks/{task}/assign',  [TaskController::class, 'assign']);
     Route::delete('/tasks/{task}',        [TaskController::class, 'destroy']);
+
+    // Current user's tasks across all projects (must come before /tasks/{task})
+    Route::get('/tasks/my', [TaskController::class, 'myTasks']);
 
     // COMMENT ROUTES
     Route::get('/tasks/{task}/comments',  [CommentController::class, 'index']);

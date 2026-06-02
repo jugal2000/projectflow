@@ -21,6 +21,14 @@ class TaskResource extends JsonResource
             'assignee'    => new UserResource($this->whenLoaded('assignee')),
             'assigned_to' => $this->assigned_to, // just the ID
 
+            // Project info — only included when the project relationship is loaded
+            // (used by the My Tasks page so it can show which project a task belongs to)
+            'project' => $this->whenLoaded('project', fn() => [
+                'id'   => $this->project->id,
+                'name' => $this->project->name,
+                'slug' => $this->project->slug,
+            ]),
+
             'due_date'    => $this->due_date?->toDateString(),
 
             // Calculate is_overdue right here in the resource

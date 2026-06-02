@@ -68,6 +68,9 @@ export const taskApi = {
   update: (id: number, data: Partial<Task>) =>
     api.put<ApiResponse<Task>>(`/tasks/${id}`, data),
 
+  myTasks: () =>
+  api.get<ApiResponse<Task[]>>('/tasks/my'),
+
   // Change task status — separate from update() because of business rules
   changeStatus: (id: number, status: string, actualHours?: number) =>
     api.patch<ApiResponse<Task>>(`/tasks/${id}/status`, {

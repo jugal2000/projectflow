@@ -47,6 +47,27 @@ class TaskController extends BaseController
         return $this->paginated(TaskResource::collection($tasks));
     }
 
+
+    /**
+     * GET /api/v1/tasks/my
+     *
+     * Returns all tasks assigned to the currently authenticated user,
+     * across every project, in a single query. Replaces the previous
+     * frontend pattern of looping one request per project (N+1).
+     */
+    public function myTasks(Request $request): JsonResponse
+    {
+        $user = $this->authUser();
+
+        $tasks = Task::query()
+            ->where('assigned_to', $user->id)
+            ->with(['assignee', 'project:id,name,slug'])
+            ->orderBy('due_date')
+            ->get();
+
+        return $this->success(TaskResource::collection($tasks));
+    }
+
     /**
      * POST /api/v1/projects/{slug}/tasks
      * Create a new task in a project
