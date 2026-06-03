@@ -164,33 +164,49 @@ class ProjectController extends BaseController
 
   /**
    * GET /api/v1/projects/{slug}/stats
-   * Get cached project statistics
+   *
+   * Aggregate project statistics, cached for 5 minutes.
+   * Response shape matches the ProjectStats interface on the frontend.
    */
   public function stats(Project $project): JsonResponse
   {
-    $stats = Cache::remember(
-      "project_stats_{$project->id}",
-      300, // 5 minutes
-      function () use ($project) {
-        return [
-          'total_tasks'       => $project->tasks()->count(),
-          'todo'              => $project->tasks()->where('status', 'todo')->count(),
-          'in_progress'       => $project->tasks()->where('status', 'in_progress')->count(),
-          'in_review'         => $project->tasks()->where('status', 'in_review')->count(),
-          'done'              => $project->tasks()->where('status', 'done')->count(),
-          'overdue'           => $project->tasks()
-            ->where('due_date', '<', now())
-            ->whereNotIn('status', ['done'])
-            ->count(),
-          'by_priority' => [
-            'low'      => $project->tasks()->where('priority', 'low')->count(),
-            'medium'   => $project->tasks()->where('priority', 'medium')->count(),
-            'high'     => $project->tasks()->where('priority', 'high')->count(),
-            'critical' => $project->tasks()->where('priority', 'critical')->count(),
-          ],
-        ];
-      }
-    );
+    $stats = Cache::remember("project_stats_{$project->id}", 300, function () use ($project) {
+      $byStatus = $project->tasks()
+        ->selectRaw('status, COUNT(*) as count')
+        ->groupBy('status')
+        ->pluck('count', 'status')
+        ->toArray();
+
+      // Ensure every status key is present even when zero
+      $tasksByStatus = array_merge(
+        ['todo' => 0, 'in_progress' => 0, 'in_review' => 0, 'done' => 0],
+        $byStatus
+      );
+
+      $hours = $project->tasks()
+        ->selectRaw('SUM(estimated_hours) as estimated, SUM(actual_hours) as actual')
+        ->first();
+
+      $overdueCount = $project->tasks()
+        ->whereNotNull('due_date')
+        ->where('due_date', '<', now())
+        ->where('status', '!=', 'done')
+        ->count();
+
+      $totalTasks = array_sum($tasksByStatus);
+      $completionPct = $totalTasks === 0
+        ? 0
+        : (int) round(($tasksByStatus['done'] / $totalTasks) * 100);
+
+      return [
+        'tasks_by_status' => $tasksByStatus,
+        'total_tasks'     => $totalTasks,
+        'estimated_hours' => (float) ($hours->estimated ?? 0),
+        'actual_hours'    => (float) ($hours->actual ?? 0),
+        'overdue_count'   => $overdueCount,
+        'completion_pct'  => $completionPct,
+      ];
+    });
 
     return $this->success($stats);
   }
