@@ -3,6 +3,20 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# Accept Vite env vars as build arguments
+ARG VITE_API_BASE_URL
+ARG VITE_REVERB_APP_KEY
+ARG VITE_REVERB_HOST
+ARG VITE_REVERB_PORT
+ARG VITE_REVERB_SCHEME
+
+# Make them available to the Vite dev server as environment variables
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+ENV VITE_REVERB_APP_KEY=$VITE_REVERB_APP_KEY
+ENV VITE_REVERB_HOST=$VITE_REVERB_HOST
+ENV VITE_REVERB_PORT=$VITE_REVERB_PORT
+ENV VITE_REVERB_SCHEME=$VITE_REVERB_SCHEME
+
 # Copy package files first (for caching)
 COPY package.json package-lock.json ./
 
