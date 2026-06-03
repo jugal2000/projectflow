@@ -117,15 +117,15 @@ const CommentItem: React.FC<CommentItemProps> = ({
           <p className="text-sm text-gray-700 whitespace-pre-wrap">{comment.body}</p>
         )}
 
-        {/* Reply button — only on root level comments to avoid deep nesting */}
-        {depth === 0 && !isEditing && (
-          <button
-            onClick={() => onReply(comment.id)}
-            className="mt-1.5 text-xs text-indigo-500 hover:text-indigo-700 font-medium"
-          >
-            ↩ Reply
-          </button>
-        )}
+        {/* Reply button — available at any level so users can reply to replies */}
+{!isEditing && (
+  <button
+    onClick={() => onReply(comment.id)}
+    className="mt-1.5 text-xs text-indigo-500 hover:text-indigo-700 font-medium"
+  >
+    ↩ Reply
+  </button>
+)}
       </div>
 
       {/* Render replies recursively */}
