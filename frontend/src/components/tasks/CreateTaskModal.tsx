@@ -21,6 +21,7 @@ interface FormState {
 interface FormErrors {
   title?: string
   estimated_hours?: string
+  due_date?: string
 }
 
 const CreateTaskModal: React.FC<Props> = ({ projectSlug, onClose, onCreated }) => {
@@ -61,6 +62,15 @@ const CreateTaskModal: React.FC<Props> = ({ projectSlug, onClose, onCreated }) =
     if (form.estimated_hours && isNaN(Number(form.estimated_hours))) {
       errs.estimated_hours = 'Must be a number'
     }
+    // Due date cannot be in the past
+  if (form.due_date) {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)              // normalize to start of today
+    const picked = new Date(form.due_date)
+    if (picked < today) {
+      errs.due_date = 'Due date must be today or a future date'
+    }
+  }
     setErrors(errs)
     return Object.keys(errs).length === 0
   }
@@ -82,10 +92,16 @@ const CreateTaskModal: React.FC<Props> = ({ projectSlug, onClose, onCreated }) =
       onCreated(res.data.data)
       toast.success('Task created!')
     } catch (err: unknown) {
-      const apiErrors = (err as { response?: { data?: { errors?: Record<string, string[]> } } })?.response?.data?.errors ?? {}
-      if (apiErrors.title) setErrors({ title: apiErrors.title[0] })
-      else toast.error('Failed to create task')
-    } finally {
+  const apiErrors = (err as { response?: { data?: { errors?: Record<string, string[]> } } })?.response?.data?.errors ?? {}
+  const fieldErrors: FormErrors = {}
+  if (apiErrors.title)    fieldErrors.title = apiErrors.title[0]
+  if (apiErrors.due_date) fieldErrors.due_date = apiErrors.due_date[0]
+  if (Object.keys(fieldErrors).length > 0) {
+    setErrors(fieldErrors)
+  } else {
+    toast.error('Failed to create task')
+  }
+} finally {
       setIsLoading(false)
     }
   }
@@ -190,8 +206,10 @@ const CreateTaskModal: React.FC<Props> = ({ projectSlug, onClose, onCreated }) =
               type="date"
               value={form.due_date}
               onChange={setField('due_date')}
+               min={new Date().toISOString().split('T')[0]}
               className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
             />
+            {errors.due_date && <p className="text-xs text-red-600 mt-1">{errors.due_date}</p>}
           </div>
 
           <div className="flex gap-3 pt-2">

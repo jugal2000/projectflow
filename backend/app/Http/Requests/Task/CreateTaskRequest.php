@@ -26,8 +26,14 @@ class CreateTaskRequest extends FormRequest
             // 'exists:users,id' = this user ID must exist in the users table
             'assigned_to'     => ['nullable', 'exists:users,id'],
 
-            'due_date'        => ['nullable', 'date'],
+            'due_date'        => ['nullable', 'date', 'after_or_equal:today'],
             'estimated_hours' => ['nullable', 'numeric', 'min:0', 'max:9999'],
+        ];
+    }
+    public function messages(): array
+    {
+        return [
+            'due_date.after_or_equal' => 'The due date must be today or a future date.',
         ];
     }
 }
