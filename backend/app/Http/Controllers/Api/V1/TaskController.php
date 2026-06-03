@@ -89,7 +89,10 @@ class TaskController extends BaseController
 
         $task = $project->tasks()->create(array_merge(
             $request->validated(),
-            ['sort_order' => $maxOrder + 1]
+            [
+                'status'     => $status,
+                'sort_order' => $maxOrder + 1
+            ]
         ));
 
         ActivityLog::record($task, $user, 'created');
