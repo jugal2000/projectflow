@@ -45,7 +45,6 @@ class ActivityLogTest extends TestCase
   {
     $task = Task::factory()->create([
       'project_id'  => $this->project->id,
-      'assigned_to' => $this->manager->id,
     ]);
 
     $token = $this->loginAs($this->manager);

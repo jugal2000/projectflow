@@ -16,7 +16,6 @@ class TaskFactory extends Factory
             'description'     => fake()->paragraph(),
             'status'          => 'todo',
             'priority'        => fake()->randomElement(['low', 'medium', 'high', 'critical']),
-            'assigned_to'     => null,
             'due_date'        => fake()->dateTimeBetween('now', '+30 days')->format('Y-m-d'),
             'estimated_hours' => fake()->randomFloat(1, 1, 40),
             'actual_hours'    => null,

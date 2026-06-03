@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -18,7 +19,6 @@ class Task extends Model
         'description',
         'status',
         'priority',
-        'assigned_to',
         'due_date',
         'estimated_hours',
         'actual_hours',
@@ -59,10 +59,10 @@ class Task extends Model
         return $this->belongsTo(Project::class);
     }
 
-    // A task is ASSIGNED TO a user (via assigned_to column)
-    public function assignee(): BelongsTo
+    // A task is ASSIGNED TO many users (via the task_user pivot table)
+    public function assignees(): BelongsToMany
     {
-        return $this->belongsTo(User::class, 'assigned_to');
+        return $this->belongsToMany(User::class, 'task_user')->withTimestamps();
     }
 
     // A task HAS MANY comments
@@ -101,7 +101,9 @@ class Task extends Model
 
     public function scopeForAssignee($query, ?int $userId)
     {
-        return $userId ? $query->where('assigned_to', $userId) : $query;
+        return $userId
+            ? $query->whereHas('assignees', fn($q) => $q->where('users.id', $userId))
+            : $query;
     }
 
     // Scope for overdue tasks:

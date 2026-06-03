@@ -55,7 +55,7 @@ class TaskUpdated implements ShouldBroadcastNow
     {
         return [
             'action' => $this->action,
-            'task'   => (new TaskResource($this->task->load('assignee')))->resolve(),
+            'task'   => (new TaskResource($this->task->load('assignees')))->resolve(),
         ];
     }
 }

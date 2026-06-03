@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { taskApi, userApi } from '../../services/api'
 import type { Task, User } from '../../types'
 import toast from 'react-hot-toast'
+import AssigneeMultiSelect from './AssigneeMultiSelect'
 
 interface Props {
   projectSlug: string
@@ -15,7 +16,7 @@ interface FormState {
   priority: string
   due_date: string
   estimated_hours: string
-  assigned_to: string  // stored as string for the <select>, converted to number on submit
+  assignee_ids: number[]
 }
 
 interface FormErrors {
@@ -26,9 +27,9 @@ interface FormErrors {
 
 const CreateTaskModal: React.FC<Props> = ({ projectSlug, onClose, onCreated }) => {
   const [form, setForm] = useState<FormState>({
-    title: '', description: '', priority: 'medium', due_date: '', estimated_hours: '',
-    assigned_to: '',
-  })
+  title: '', description: '', priority: 'medium', due_date: '', estimated_hours: '',
+  assignee_ids: [],
+})
   const [errors, setErrors]       = useState<FormErrors>({})
   const [isLoading, setIsLoading] = useState(false)
   const [users, setUsers]         = useState<User[]>([])
@@ -87,7 +88,7 @@ const CreateTaskModal: React.FC<Props> = ({ projectSlug, onClose, onCreated }) =
         priority:        form.priority as 'low' | 'medium' | 'high' | 'critical',
         due_date:        form.due_date || undefined,
         estimated_hours: form.estimated_hours ? Number(form.estimated_hours) : undefined,
-        assigned_to:     form.assigned_to ? Number(form.assigned_to) : undefined,
+        assignee_ids:    form.assignee_ids,
       })
       onCreated(res.data.data)
       toast.success('Task created!')
@@ -146,22 +147,16 @@ const CreateTaskModal: React.FC<Props> = ({ projectSlug, onClose, onCreated }) =
           </div>
 
           {/* Assignee dropdown — new for issue 4 */}
+          {/* Assignees — multiselect autocomplete */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              Assign to
+              Assignees
             </label>
-            <select
-              value={form.assigned_to}
-              onChange={setField('assigned_to')}
-              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
-            >
-              <option value="">Unassigned</option>
-              {users.map(u => (
-                <option key={u.id} value={u.id}>
-                  {u.name} ({u.role})
-                </option>
-              ))}
-            </select>
+            <AssigneeMultiSelect
+              users={users}
+              selectedIds={form.assignee_ids}
+              onChange={(ids) => setForm(prev => ({ ...prev, assignee_ids: ids }))}
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-4">

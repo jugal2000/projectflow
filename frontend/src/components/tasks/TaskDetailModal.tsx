@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext'
 import type { Task, TaskStatus, User } from '../../types'
 import CommentsSection from '../comments/CommentsSection'
 import toast from 'react-hot-toast'
+import AssigneeMultiSelect from './AssigneeMultiSelect'
 
 interface Props {
   task: Task
@@ -45,9 +46,9 @@ const TaskDetailModal: React.FC<Props> = ({ task, onClose, onUpdate, onDelete })
   const [isReassigning, setIsReassigning] = useState(false)
 
   // Permissions
-  const canEdit = user?.role === 'admin'
+ const canEdit = user?.role === 'admin'
     || user?.role === 'manager'
-    || task.assigned_to === user?.id
+    || task.assignees.some(a => a.id === user?.id)
 
   const canReassign = user?.role === 'admin' || user?.role === 'manager'
 
@@ -166,39 +167,16 @@ const TaskDetailModal: React.FC<Props> = ({ task, onClose, onUpdate, onDelete })
   }
 
   // Handle reassigning the task to a different team member
-  const handleReassign = async (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const value = e.target.value
-    // Empty string from the select means "unassign"
-    const newAssigneeId = value === '' ? null : Number(value)
-
-    // No change — don't fire the API
-    if (newAssigneeId === task.assigned_to) return
-
+  const handleAssigneesChange = async (ids: number[]) => {
     setIsReassigning(true)
     try {
-      const res = await taskApi.assign(task.id, newAssigneeId)
+      const res = await taskApi.assign(task.id, ids)
       onUpdate(res.data.data)
-
-      if (newAssigneeId === null) {
-        toast.success('Task unassigned')
-      } else {
-        const assignedName = res.data.data.assignee?.name ?? 'team member'
-        toast.success(`Task assigned to ${assignedName}`)
-      }
+      toast.success('Assignees updated')
     } catch (err) {
       const error = err as { response?: { status?: number; data?: { message?: string } } }
-      const status = error.response?.status
       const apiMessage = error.response?.data?.message
-
-      let displayMessage: string
-      if (apiMessage) {
-        displayMessage = apiMessage
-      } else if (status === 403) {
-        displayMessage = "You're not allowed to reassign this task."
-      } else {
-        displayMessage = 'Could not reassign task. Please try again.'
-      }
-      toast.error(displayMessage)
+      toast.error(apiMessage ?? 'Could not update assignees. Please try again.')
     } finally {
       setIsReassigning(false)
     }
@@ -321,39 +299,34 @@ const TaskDetailModal: React.FC<Props> = ({ task, onClose, onUpdate, onDelete })
               Assignee
             </p>
 
-            {/* Current assignee display */}
-            {task.assignee ? (
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-7 h-7 rounded-full bg-indigo-500 text-white text-xs font-bold flex items-center justify-center">
-                  {task.assignee.name.charAt(0).toUpperCase()}
-                </div>
-                <span className="text-sm text-gray-700">{task.assignee.name}</span>
-                <span className="text-xs px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">
-                  {task.assignee.role}
-                </span>
+            
+            {/* Current assignees display */}
+            {task.assignees.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-2 mb-2">
+                {task.assignees.map(a => (
+                  <div key={a.id} className="flex items-center gap-1.5 bg-gray-50 rounded-full pl-1 pr-2 py-1">
+                    <div className="w-6 h-6 rounded-full bg-indigo-500 text-white text-xs font-bold flex items-center justify-center">
+                      {a.name.charAt(0).toUpperCase()}
+                    </div>
+                    <span className="text-xs text-gray-700">{a.name}</span>
+                  </div>
+                ))}
               </div>
             ) : (
               <p className="text-sm text-gray-400 italic mb-2">Unassigned</p>
             )}
 
-            {/* Reassign dropdown — admin/manager only */}
+            {/* Manage assignees — admin/manager only */}
             {canReassign && (
               <div className="mt-2">
-                <select
-                  value={task.assigned_to ?? ''}
-                  onChange={handleReassign}
+                <AssigneeMultiSelect
+                  users={users}
+                  selectedIds={task.assignees.map(a => a.id)}
+                  onChange={handleAssigneesChange}
                   disabled={isReassigning}
-                  className="w-full max-w-xs text-sm px-3 py-1.5 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:opacity-60"
-                >
-                  <option value="">Unassigned</option>
-                  {users.map(u => (
-                    <option key={u.id} value={u.id}>
-                      {u.name} ({u.role})
-                    </option>
-                  ))}
-                </select>
+                />
                 {isReassigning && (
-                  <p className="text-xs text-gray-500 mt-1">Updating assignment…</p>
+                  <p className="text-xs text-gray-500 mt-1">Updating assignees…</p>
                 )}
               </div>
             )}

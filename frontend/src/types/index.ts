@@ -69,8 +69,8 @@ export interface Task {
   description: string | null
   status: TaskStatus
   priority: TaskPriority
-  assignee: User | null        // null if unassigned
-  assigned_to: number | null   // just the ID
+ assignees: User[]            // many-to-many; empty array if unassigned
+  assignee_ids?: number[]      // just the IDs (for pre-selecting in forms)
   due_date: string | null
   is_overdue: boolean          // calculated by the API
   estimated_hours: number | null

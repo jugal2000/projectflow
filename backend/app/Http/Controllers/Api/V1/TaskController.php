@@ -35,18 +35,20 @@ class TaskController extends BaseController
      */
     public function index(Request $request, Project $project): JsonResponse
     {
-        $query = $project->tasks()->with('assignee');
+        $query = $project->tasks()->with('assignees');
 
-        if ($request->status)      $query->where('status', $request->status);
-        if ($request->priority)    $query->where('priority', $request->priority);
-        if ($request->assigned_to) $query->where('assigned_to', $request->assigned_to);
+        if ($request->status)   $query->where('status', $request->status);
+        if ($request->priority) $query->where('priority', $request->priority);
+        if ($request->assigned_to) {
+            // Filter tasks where the given user is one of the assignees
+            $query->whereHas('assignees', fn($q) => $q->where('users.id', $request->assigned_to));
+        }
 
         $tasks = $query->orderBy('sort_order')
             ->paginate($request->per_page ?? 50);
 
         return $this->paginated(TaskResource::collection($tasks));
     }
-
 
     /**
      * GET /api/v1/tasks/my
@@ -60,8 +62,8 @@ class TaskController extends BaseController
         $user = $this->authUser();
 
         $tasks = Task::query()
-            ->where('assigned_to', $user->id)
-            ->with(['assignee', 'project:id,name,slug'])
+            ->whereHas('assignees', fn($q) => $q->where('users.id', $user->id))
+            ->with(['assignees', 'project:id,name,slug'])
             ->orderBy('due_date')
             ->get();
 
@@ -87,20 +89,29 @@ class TaskController extends BaseController
             ->where('status', $status)
             ->max('sort_order') ?? -1;
 
+        $data = $request->validated();
+        $assigneeIds = $data['assignee_ids'] ?? [];
+        unset($data['assignee_ids']);   // not a column on tasks
+
         $task = $project->tasks()->create(array_merge(
-            $request->validated(),
+            $data,
             [
                 'status'     => $status,
-                'sort_order' => $maxOrder + 1
+                'sort_order' => $maxOrder + 1,
             ]
         ));
+
+        // Attach the chosen assignees to the pivot
+        if (!empty($assigneeIds)) {
+            $task->assignees()->sync($assigneeIds);
+        }
 
         ActivityLog::record($task, $user, 'created');
         TaskUpdated::dispatch($task, 'created');
         Cache::forget("project_stats_{$project->id}");
 
         return $this->success(
-            new TaskResource($task->load('assignee')),
+            new TaskResource($task->load('assignees')),
             'Task created successfully',
             201
         );
@@ -116,7 +127,7 @@ class TaskController extends BaseController
 
         $canUpdate = $user->isAdmin()
             || $user->isManager()
-            || $task->assigned_to === $user->id;
+            || $task->assignees()->where('users.id', $user->id)->exists();
 
         if (!$canUpdate) {
             return $this->error('You do not have permission to update this task', 403);
@@ -129,7 +140,7 @@ class TaskController extends BaseController
         Cache::forget("project_stats_{$task->project_id}");
 
         return $this->success(
-            new TaskResource($task->load('assignee')),
+            new TaskResource($task->load('assignees')),
             'Task updated successfully'
         );
     }
@@ -144,7 +155,7 @@ class TaskController extends BaseController
 
         $canUpdate = $user->isAdmin()
             || $user->isManager()
-            || $task->assigned_to === $user->id;
+            || $task->assignees()->where('users.id', $user->id)->exists();
 
         if (!$canUpdate) {
             return $this->error('You do not have permission to change this task status', 403);
@@ -184,7 +195,7 @@ class TaskController extends BaseController
         Cache::forget("project_stats_{$task->project_id}");
 
         return $this->success(
-            new TaskResource($task->load('assignee')),
+            new TaskResource($task->load('assignees')),
             'Status updated successfully'
         );
     }
@@ -202,23 +213,25 @@ class TaskController extends BaseController
         }
 
         $request->validate([
-            'assigned_to' => 'nullable|exists:users,id',
+            'assignee_ids'   => 'present|array',   // present so [] clears all assignees
+            'assignee_ids.*' => 'integer|exists:users,id',
         ]);
 
-        $task->update(['assigned_to' => $request->assigned_to]);
+        // sync() replaces the full set of assignees with the given list.
+        // Passing [] removes all assignees.
+        $task->assignees()->sync($request->assignee_ids);
 
         ActivityLog::record($task, $user, 'assigned', [
-            'assigned_to' => $request->assigned_to,
+            'assignee_ids' => $request->assignee_ids,
         ]);
 
         Cache::forget("project_stats_{$task->project_id}");
 
         return $this->success(
-            new TaskResource($task->load('assignee')),
-            'Task assigned successfully'
+            new TaskResource($task->load('assignees')),
+            'Task assignees updated successfully'
         );
     }
-
     /**
      * POST /api/v1/tasks/reorder
      * Bulk update sort_order for multiple tasks

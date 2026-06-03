@@ -23,8 +23,9 @@ class CreateTaskRequest extends FormRequest
             'status'          => ['nullable', Rule::in(Task::STATUSES)],
             'priority'        => ['nullable', Rule::in(Task::PRIORITIES)],
 
-            // 'exists:users,id' = this user ID must exist in the users table
-            'assigned_to'     => ['nullable', 'exists:users,id'],
+            // Multiple assignees — an array of existing user IDs (all optional)
+            'assignee_ids'    => ['nullable', 'array'],
+            'assignee_ids.*'  => ['integer', 'exists:users,id'],
 
             'due_date'        => ['nullable', 'date', 'after_or_equal:today'],
             'estimated_hours' => ['nullable', 'numeric', 'min:0', 'max:9999'],

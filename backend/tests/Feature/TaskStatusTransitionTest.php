@@ -27,8 +27,8 @@ class TaskStatusTransitionTest extends TestCase
     $this->task = Task::factory()->create([
       'project_id'  => $this->project->id,
       'status'      => 'todo',
-      'assigned_to' => $this->manager->id,
     ]);
+    $this->task->assignees()->attach($this->manager->id);
   }
 
   public function test_todo_can_transition_to_in_progress(): void

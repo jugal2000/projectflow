@@ -25,7 +25,6 @@ class CommentTest extends TestCase
     $this->project = Project::factory()->create();
     $this->task    = Task::factory()->create([
       'project_id'  => $this->project->id,
-      'assigned_to' => $this->author->id,
     ]);
   }
 

@@ -29,8 +29,8 @@ class BroadcastTest extends TestCase
     $this->task = Task::factory()->create([
       'project_id'  => $this->project->id,
       'status'      => 'todo',
-      'assigned_to' => $this->manager->id,
     ]);
+    $this->task->assignees()->attach($this->manager->id);
   }
 
   public function test_changing_status_dispatches_task_updated_event(): void

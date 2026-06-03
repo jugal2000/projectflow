@@ -17,9 +17,10 @@ class TaskResource extends JsonResource
             'status'      => $this->status,
             'priority'    => $this->priority,
 
-            // The assignee object (only if loaded)
-            'assignee'    => new UserResource($this->whenLoaded('assignee')),
-            'assigned_to' => $this->assigned_to, // just the ID
+            // The assignees (many-to-many). Returns an array of users when loaded.
+            'assignees'    => UserResource::collection($this->whenLoaded('assignees')),
+            // Convenience: just the IDs, for the frontend's multiselect to pre-select
+            'assignee_ids' => $this->whenLoaded('assignees', fn() => $this->assignees->pluck('id')),
 
             // Project info — only included when the project relationship is loaded
             // (used by the My Tasks page so it can show which project a task belongs to)

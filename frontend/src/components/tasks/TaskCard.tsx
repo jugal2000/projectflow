@@ -52,14 +52,9 @@ const TaskCard: React.FC<Props> = memo(({ task, onTaskClick, isDragging = false 
 
   // Get initials from assignee's name for the avatar
   // "Alice Dev" → "AD"
-  const avatarInitials = task.assignee
-    ? task.assignee.name
-        .split(' ')
-        .map(n => n[0])
-        .join('')
-        .slice(0, 2)
-        .toUpperCase()
-    : null
+  // Show up to 3 assignee avatars, then a "+N" overflow badge
+  const shownAssignees = task.assignees.slice(0, 3)
+  const overflowCount = task.assignees.length - shownAssignees.length
 
   return (
     <div
@@ -96,12 +91,26 @@ const TaskCard: React.FC<Props> = memo(({ task, onTaskClick, isDragging = false 
         </span>
 
         {/* Assignee avatar circle */}
-        {avatarInitials && (
-          <div
-            className="w-6 h-6 rounded-full bg-indigo-500 text-white text-xs font-bold flex items-center justify-center flex-shrink-0"
-            title={task.assignee?.name}
-          >
-            {avatarInitials}
+        {/* Assignee avatars (stacked) */}
+        {task.assignees.length > 0 && (
+          <div className="flex items-center -space-x-1.5">
+            {shownAssignees.map(a => (
+              <div
+                key={a.id}
+                className="w-6 h-6 rounded-full bg-indigo-500 text-white text-xs font-bold flex items-center justify-center ring-2 ring-white"
+                title={a.name}
+              >
+                {a.name.charAt(0).toUpperCase()}
+              </div>
+            ))}
+            {overflowCount > 0 && (
+              <div
+                className="w-6 h-6 rounded-full bg-gray-300 text-gray-700 text-xs font-bold flex items-center justify-center ring-2 ring-white"
+                title={`+${overflowCount} more`}
+              >
+                +{overflowCount}
+              </div>
+            )}
           </div>
         )}
       </div>
