@@ -1,8 +1,7 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { activityApi, type ActivityLogEntry } from '../services/api'
 import toast from 'react-hot-toast'
 
-// Map each action to a friendly label + icon
 const ACTION_CONFIG: Record<string, { label: string; icon: string; color: string }> = {
   created:          { label: 'created',          icon: '✨', color: 'text-green-600' },
   updated:          { label: 'updated',          icon: '✏️', color: 'text-blue-600' },
@@ -20,7 +19,6 @@ const ROLE_BADGE: Record<string, string> = {
   developer: 'bg-green-100 text-green-700',
 }
 
-// Turn an ISO timestamp into a short relative string ("3h ago")
 const timeAgo = (iso: string): string => {
   const then = new Date(iso).getTime()
   const diff = Date.now() - then
@@ -39,46 +37,103 @@ const ActivityLogPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true)
   const [actionFilter, setActionFilter] = useState('')
 
+  // Search: searchInput is what the user types; searchTerm is the debounced value
+  const [searchInput, setSearchInput] = useState('')
+  const [searchTerm, setSearchTerm]   = useState('')
+
+  // Pagination
+  const [page, setPage]         = useState(1)
+  const [lastPage, setLastPage] = useState(1)
+  const [total, setTotal]       = useState(0)
+
+  // Debounce the search input (300ms) so we don't fire a request per keystroke
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
-    const load = async () => {
-      setIsLoading(true)
-      try {
-        const res = await activityApi.list({
-          action: actionFilter || undefined,
-          per_page: 50,
-        })
-        setLogs(res.data.data)
-      } catch {
-        toast.error('Failed to load activity log')
-      } finally {
-        setIsLoading(false)
-      }
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      setSearchTerm(searchInput)
+      setPage(1)              // reset to first page on a new search
+    }, 300)
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
     }
-    void load()
-  }, [actionFilter])
+  }, [searchInput])
+
+  const load = useCallback(async () => {
+    setIsLoading(true)
+    try {
+      type ListParams = {
+        action?: string
+        page: number
+        per_page: number
+        search?: string
+      }
+
+      const params: ListParams = {
+        action: actionFilter || undefined,
+        page,
+        per_page: 25,
+        ...(searchTerm ? { search: searchTerm } : {}),
+      }
+
+      const res = await activityApi.list(params)
+      setLogs(res.data.data)
+      setLastPage(res.data.meta.last_page)
+      setTotal(res.data.meta.total)
+    } catch {
+      toast.error('Failed to load activity log')
+    } finally {
+      setIsLoading(false)
+    }
+  }, [actionFilter, searchTerm, page])
+
+  useEffect(() => {
+    // Avoid synchronous setState during render/effect startup to satisfy
+    // react-hooks/exhaustive-deps and lint rules about cascading renders.
+    // Schedule the load to run in a microtask.
+    void Promise.resolve().then(() => { void load() })
+  }, [load])
 
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Activity Log</h1>
-          <p className="text-gray-500 mt-1">Audit trail of actions across all projects</p>
+          <p className="text-gray-500 mt-1">
+            Audit trail of actions across all projects
+            {total > 0 && ` · ${total} entries`}
+          </p>
         </div>
 
-        {/* Simple action filter */}
-        <select
-          value={actionFilter}
-          onChange={(e) => setActionFilter(e.target.value)}
-          className="px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white text-gray-700"
-        >
-          <option value="">All actions</option>
-          <option value="created">Created</option>
-          <option value="updated">Updated</option>
-          <option value="deleted">Deleted</option>
-          <option value="status_changed">Status changed</option>
-          <option value="assigned">Assigned</option>
-          <option value="commented">Commented</option>
-        </select>
+        <div className="flex gap-3 flex-wrap">
+          {/* Search box */}
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">🔍</span>
+            <input
+              type="text"
+              placeholder="Search by user, action…"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              className="pl-9 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
+              autoComplete="off"
+            />
+          </div>
+
+          {/* Action filter */}
+          <select
+            value={actionFilter}
+            onChange={(e) => setActionFilter(e.target.value)}
+            className="px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white text-gray-700"
+          >
+            <option value="">All actions</option>
+            <option value="created">Created</option>
+            <option value="updated">Updated</option>
+            <option value="deleted">Deleted</option>
+            <option value="status_changed">Status changed</option>
+            <option value="assigned">Assigned</option>
+            <option value="commented">Commented</option>
+          </select>
+        </div>
       </div>
 
       {isLoading ? (
@@ -88,45 +143,75 @@ const ActivityLogPage: React.FC = () => {
       ) : logs.length === 0 ? (
         <div className="text-center py-20 bg-white rounded-2xl border border-gray-100">
           <span className="text-5xl mb-4 block">📋</span>
-          <p className="text-gray-500 font-medium">No activity recorded yet</p>
+          <p className="text-gray-500 font-medium">No activity found</p>
+          {(searchTerm || actionFilter) && (
+            <p className="text-gray-400 text-sm mt-1">Try changing your search or filter</p>
+          )}
         </div>
       ) : (
-        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-          <div className="divide-y divide-gray-100">
-            {logs.map(log => {
-              const config = ACTION_CONFIG[log.action] ?? {
-                label: log.action, icon: '•', color: 'text-gray-600',
-              }
-              return (
-                <div key={log.id} className="p-4 flex items-start gap-3 hover:bg-gray-50 transition-colors">
-                  <span className="text-lg flex-shrink-0 mt-0.5">{config.icon}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-gray-800">
-                      <span className="font-semibold">{log.user?.name ?? 'Someone'}</span>
-                      {log.user && (
-                        <span className={`text-xs px-1.5 py-0.5 rounded-full ml-2 ${ROLE_BADGE[log.user.role] ?? 'bg-gray-100 text-gray-500'}`}>
-                          {log.user.role}
-                        </span>
-                      )}
-                      <span className={`${config.color} mx-1`}>{config.label}</span>
-                      <span className="text-gray-600">{log.subject_type} #{log.subject_id}</span>
-                    </p>
-                    {log.properties && Object.keys(log.properties).length > 0 && (
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        {Object.entries(log.properties)
-                          .map(([k, v]) => `${k}: ${String(v)}`)
-                          .join(' · ')}
+        <>
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+            <div className="divide-y divide-gray-100">
+              {logs.map(log => {
+                const config = ACTION_CONFIG[log.action] ?? {
+                  label: log.action, icon: '•', color: 'text-gray-600',
+                }
+                return (
+                  <div key={log.id} className="p-4 flex items-start gap-3 hover:bg-gray-50 transition-colors">
+                    <span className="text-lg flex-shrink-0 mt-0.5">{config.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-gray-800">
+                        <span className="font-semibold">{log.user?.name ?? 'Someone'}</span>
+                        {log.user && (
+                          <span className={`text-xs px-1.5 py-0.5 rounded-full ml-2 ${ROLE_BADGE[log.user.role] ?? 'bg-gray-100 text-gray-500'}`}>
+                            {log.user.role}
+                          </span>
+                        )}
+                        <span className={`${config.color} mx-1`}>{config.label}</span>
+                        <span className="text-gray-600">{log.subject_type} #{log.subject_id}</span>
                       </p>
-                    )}
+                      {log.properties && Object.keys(log.properties).length > 0 && (
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          {Object.entries(log.properties)
+                            .map(([k, v]) => `${k}: ${String(v)}`)
+                            .join(' · ')}
+                        </p>
+                      )}
+                    </div>
+                    <span className="text-xs text-gray-400 flex-shrink-0 whitespace-nowrap">
+                      {timeAgo(log.created_at)}
+                    </span>
                   </div>
-                  <span className="text-xs text-gray-400 flex-shrink-0 whitespace-nowrap">
-                    {timeAgo(log.created_at)}
-                  </span>
-                </div>
-              )
-            })}
+                )
+              })}
+            </div>
           </div>
-        </div>
+
+          {/* Pagination controls */}
+          {lastPage > 1 && (
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="px-4 py-2 text-sm font-medium border border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+              >
+                ← Previous
+              </button>
+              <span className="text-sm text-gray-500">
+                Page {page} of {lastPage}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPage(p => Math.min(lastPage, p + 1))}
+                disabled={page >= lastPage}
+                className="px-4 py-2 text-sm font-medium border border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+              >
+                Next →
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

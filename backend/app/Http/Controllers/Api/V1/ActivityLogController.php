@@ -50,6 +50,26 @@ class ActivityLogController extends BaseController
       $query->where('subject_type', "App\\Models\\{$short}");
     }
 
+    // Optional filter: by subject type. Accept a short name ("Task")
+    // and expand it to the full class name stored in the DB.
+    if ($request->filled('subject_type')) {
+      $short = ucfirst($request->subject_type);
+      $query->where('subject_type', "App\\Models\\{$short}");
+    }
+
+    // Free-text search: matches the actor's name, the action, or the
+    // subject type. Lets the user type e.g. "alice", "comment", "task".
+    if ($request->filled('search')) {
+      $term = $request->search;
+      $query->where(function ($q) use ($term) {
+        $q->where('action', 'like', "%{$term}%")
+          ->orWhere('subject_type', 'like', "%{$term}%")
+          ->orWhereHas('user', function ($uq) use ($term) {
+            $uq->where('name', 'like', "%{$term}%");
+          });
+      });
+    }
+
     $logs = $query->paginate($request->per_page ?? 25);
 
     return $this->paginated(ActivityLogResource::collection($logs));

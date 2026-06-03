@@ -139,6 +139,6 @@ export interface ActivityLogEntry {
 }
 
 export const activityApi = {
-  list: (params?: { action?: string; user_id?: number; subject_type?: string; per_page?: number }) =>
+  list: (params?: { action?: string; user_id?: number; subject_type?: string; search?: string; page?: number; per_page?: number }) =>
     api.get<PaginatedResponse<ActivityLogEntry>>('/activity-logs', { params }),
 }
