@@ -195,16 +195,17 @@ const CommentsSection: React.FC<Props> = ({ taskId }) => {
   }
 
   // Delete a comment
-  const handleDelete = useCallback(async (id: number) => {
-    if (!window.confirm('Delete this comment?')) return
-    try {
-      await commentApi.delete(id)
-      await loadComments()
-      toast.success('Comment deleted')
-    } catch {
-      toast.error('Delete failed')
-    }
-  }, [loadComments])
+ const handleDelete = useCallback(async (id: number) => {
+  if (!window.confirm('Delete this comment?')) return
+  try {
+    await commentApi.delete(id)
+    await loadComments()
+    toast.success('Comment deleted')
+  } catch (err: unknown) {
+    const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+    toast.error(msg ?? 'Delete failed')
+  }
+}, [loadComments])
 
   // Update comment text locally (no need to refetch)
   const handleEdit = useCallback((id: number, body: string) => {

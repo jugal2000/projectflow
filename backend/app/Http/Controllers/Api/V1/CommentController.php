@@ -112,9 +112,20 @@ class CommentController extends BaseController
     /** @var \App\Models\User $user */
     $user = Auth::user();
 
-    // Admin can delete any comment. Other users can only delete their own.
+    // Base permission: admin can delete any comment; others only their own.
     if (!$user->isAdmin() && $comment->user_id !== $user->id) {
       return $this->forbidden('You can only delete your own comments.');
+    }
+
+    // Indirect-deletion guard: deleting a parent cascades to its replies.
+    // A non-admin must not delete a comment that has replies authored by
+    // someone else, since that would remove comments they couldn't delete
+    // directly. Admins bypass this (they can delete anything).
+    if (!$user->isAdmin() && $this->hasReplyFromOtherUser($comment, $user)) {
+      return $this->forbidden(
+        'This comment has replies from other users and cannot be deleted directly. '
+          . 'Please ask an administrator to remove it.'
+      );
     }
 
     ActivityLog::record($comment, $user, 'comment_deleted', [
@@ -124,5 +135,28 @@ class CommentController extends BaseController
     $comment->delete();
 
     return $this->success(null, 'Comment deleted');
+  }
+
+  /**
+   * Recursively checks whether $comment has any descendant reply that was
+   * authored by someone other than $user. Used to block indirect deletion:
+   * a user shouldn't be able to cascade-delete replies they don't own.
+   */
+  private function hasReplyFromOtherUser(Comment $comment, \App\Models\User $user): bool
+  {
+    $comment->loadMissing('replies');
+
+    foreach ($comment->replies as $reply) {
+      // A reply not authored by this user is one they can't delete directly
+      if ($reply->user_id !== $user->id) {
+        return true;
+      }
+      // Recurse into nested replies
+      if ($this->hasReplyFromOtherUser($reply, $user)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 }
