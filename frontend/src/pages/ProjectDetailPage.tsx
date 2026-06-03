@@ -158,10 +158,17 @@ const ProjectDetailPage: React.FC = () => {
     }
   }, [loadData])
 
-  const handleTaskCreated = useCallback((newTask: Task) => {
-    setTasks(prev => [...prev, newTask])
-    setShowCreateModal(false)
-  }, [])
+ const handleTaskCreated = useCallback((newTask: Task) => {
+  setTasks(prev => {
+    if (prev.some(task => task.id === newTask.id)) {
+      return prev; // already exists, do nothing
+    }
+
+    return [...prev, newTask];
+  });
+
+  setShowCreateModal(false);
+}, []);
 
   const handleTaskUpdated = useCallback((updated: Task) => {
     setTasks(prev => prev.map(t => t.id === updated.id ? updated : t))
