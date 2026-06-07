@@ -1,5 +1,6 @@
 import Echo from 'laravel-echo'
 import Pusher from 'pusher-js'
+import api from './axios'
 
 // Make Pusher available globally — Echo needs this
 ;(window as unknown as { Pusher: typeof Pusher }).Pusher = Pusher
@@ -27,7 +28,18 @@ function createEcho(): Echo<'reverb'> | null {
       wssPort:  Number(valueOr(import.meta.env.VITE_REVERB_PORT, '8080')),
       forceTLS: valueOr(import.meta.env.VITE_REVERB_SCHEME, 'http') === 'https',
       enabledTransports: ['ws', 'wss'],
-    })
+      authorizer: (channel: { name: string }) => ({
+        authorize: (socketId: string, callback: (error: boolean, data: unknown) => void) => {
+          api.post('/broadcasting/auth', {
+            socket_id: socketId,
+            channel_name: channel.name,
+          })
+            .then(response => callback(false, response.data))
+            .catch(error => callback(true, error))
+        },
+      }),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any)
   } catch (err) {
     console.warn('[echo] real-time updates unavailable:', err)
     return null

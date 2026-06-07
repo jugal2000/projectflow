@@ -68,7 +68,7 @@ const ProjectDetailPage: React.FC = () => {
     if (!project || !echo) return
 
     const channelName = `project.${project.id}`
-    const channel = echo.channel(channelName)
+    const channel = echo.private(channelName)
 
     channel.listen('.task.updated', (event: {
       action: string

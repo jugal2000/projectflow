@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\V1\CommentController;
 use App\Http\Controllers\Api\V1\ProjectController;
 use App\Http\Controllers\Api\V1\TaskController;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Broadcast;
 
 Route::prefix('v1')->group(function () {
 
@@ -16,10 +17,18 @@ Route::prefix('v1')->group(function () {
     Route::middleware('auth:sanctum')->group(function () {
       Route::post('/logout', [AuthController::class, 'logout']);
       Route::get('/me',      [AuthController::class, 'me']);
+      Route::post('/broadcasting/auth', function (\Illuminate\Http\Request $request) {
+        return \Illuminate\Support\Facades\Broadcast::auth($request);
+      });
     });
   });
 
   Route::middleware(['auth:sanctum', 'throttle:60,1'])->group(function () {
+
+    // Broadcasting auth endpoint — authorizes private channel subscriptions
+    // using the Sanctum token (not session). Echo POSTs here before joining
+    // a private channel; the callback in routes/channels.php decides access.
+    Broadcast::routes(['middleware' => ['auth:sanctum']]);
 
     // PROJECT ROUTES — specific routes FIRST
     Route::get('/projects',                  [ProjectController::class, 'index']);

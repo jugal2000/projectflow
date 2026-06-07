@@ -4,9 +4,8 @@ namespace App\Events;
 
 use App\Models\Task;
 use App\Http\Resources\TaskResource;
-use Illuminate\Broadcasting\Channel;
-use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
+use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
@@ -35,11 +34,10 @@ class TaskUpdated implements ShouldBroadcastNow
      * We broadcast on a channel specific to the project,
      * so only users viewing THAT project get the update.
      */
-    public function broadcastOn(): Channel
+    public function broadcastOn(): PrivateChannel
     {
-        return new Channel("project.{$this->task->project_id}");
+        return new PrivateChannel("project.{$this->task->project_id}");
     }
-
     /**
      * The name of the broadcast event (what the frontend listens for).
      */
