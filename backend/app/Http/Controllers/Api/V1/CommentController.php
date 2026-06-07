@@ -23,16 +23,12 @@ class CommentController extends BaseController
   public function index(Task $task): JsonResponse
   {
     $comments = $task->comments()
-      // Load nested replies up to 3 levels deep
-      // 'replies.author' = for each reply, load the author
-      // 'replies.replies.author' = for replies-of-replies, also load authors
-      ->with(['author', 'replies.author', 'replies.replies.author'])
-      ->whereNull('parent_id') // Only get ROOT comments (not replies)
-      ->latest()               // Newest first
+      ->with(['author', 'repliesRecursive'])
+      ->whereNull('parent_id')
+      ->latest()
       ->get();
 
     return $this->success(CommentResource::collection($comments));
-    // collection() = apply CommentResource to every comment in the array
   }
 
   /**

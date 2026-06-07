@@ -43,8 +43,7 @@ const makeTask = (overrides: Partial<Task> = {}): Task => ({
   description:         'Bug details here',
   status:              'in_progress',
   priority:            'high',
-  assignee:            mockUser,
-  assigned_to:         1,
+  assignees:           [mockUser],
   due_date:            '2099-01-01',
   is_overdue:          false,
   estimated_hours:     4,
@@ -72,11 +71,11 @@ describe('TaskCard', () => {
     expect(screen.getByText(/high/i)).toBeInTheDocument()
   })
 
-  it('renders assignee initials in avatar', () => {
+  it('renders an assignee avatar', () => {
     render(<TaskCard task={makeTask()} onTaskClick={vi.fn()} />)
 
-    // "Alice Dev" → first letters → "AD"
-    expect(screen.getByText('AD')).toBeInTheDocument()
+    // Each assignee avatar shows the first letter of their name: "Alice Dev" → "A"
+    expect(screen.getByText('A')).toBeInTheDocument()
   })
 
   it('calls onTaskClick when card is clicked', () => {
@@ -113,14 +112,14 @@ describe('TaskCard', () => {
     expect(screen.queryByText(/overdue/i)).not.toBeInTheDocument()
   })
 
-  it('does not render avatar when task has no assignee', () => {
+  it('does not render an avatar when task has no assignees', () => {
     render(
       <TaskCard
-        task={makeTask({ assignee: null, assigned_to: null })}
+        task={makeTask({ assignees: [] })}
         onTaskClick={vi.fn()}
       />
     )
 
-    expect(screen.queryByText('AD')).not.toBeInTheDocument()
+    expect(screen.queryByText('A')).not.toBeInTheDocument()
   })
 })

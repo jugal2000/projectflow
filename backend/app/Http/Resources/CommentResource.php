@@ -16,9 +16,12 @@ class CommentResource extends JsonResource
             // Who wrote this comment?
             'author'    => new UserResource($this->whenLoaded('author')),
 
-            // Nested replies — each reply is also a CommentResource
-            // This creates a tree structure automatically
-            'replies'   => CommentResource::collection($this->whenLoaded('replies')),
+            // Nested replies, output under "replies" regardless of which
+            // relationship was eager-loaded. The index loads repliesRecursive
+            // (all depths); other endpoints may load the shallow replies.
+            'replies'   => $this->relationLoaded('repliesRecursive')
+                ? CommentResource::collection($this->repliesRecursive)
+                : CommentResource::collection($this->whenLoaded('replies')),
 
             'created_at' => $this->created_at->toISOString(),
             'updated_at' => $this->updated_at->toISOString(),

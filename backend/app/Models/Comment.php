@@ -39,10 +39,12 @@ class Comment extends Model
         return $this->belongsTo(Comment::class, 'parent_id');
     }
 
-    // A comment can have many replies (other comments where parent_id = this comment's id)
-    public function replies(): HasMany
+    // Recursively loads ALL nested replies (any depth), each with its author.
+    // Used by the comment index so deeply nested replies aren't truncated.
+    public function repliesRecursive(): HasMany
     {
-        return $this->hasMany(Comment::class, 'parent_id');
+        return $this->hasMany(Comment::class, 'parent_id')
+            ->with(['author', 'repliesRecursive']);
     }
 
     // ── 15-MINUTE EDIT WINDOW ──────────────────────────────────────────

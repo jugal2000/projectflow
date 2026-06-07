@@ -53,9 +53,9 @@ const TaskCard: React.FC<Props> = memo(({ task, onTaskClick, isDragging = false 
   // Get initials from assignee's name for the avatar
   // "Alice Dev" → "AD"
   // Show up to 3 assignee avatars, then a "+N" overflow badge
-  const shownAssignees = task.assignees.slice(0, 3)
-  const overflowCount = task.assignees.length - shownAssignees.length
-
+  const assignees = task.assignees ?? []
+const shownAssignees = assignees.slice(0, 3)
+const overflowCount = assignees.length - shownAssignees.length
   return (
     <div
       ref={setNodeRef}         // Connect this div to dnd-kit
